@@ -1,8 +1,11 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { CopilotPopup } from "@copilotkit/react-ui";
-import { useCopilotAction, useCopilotReadable } from "@copilotkit/react-core";
+import {
+  useCopilotAction,
+  useCopilotChatInternal,
+  useCopilotReadable,
+} from "@copilotkit/react-core";
 import type { UbicacionCliente } from "@/lib/matching";
 import type { OrquestacionResultado } from "@/lib/types";
 
@@ -57,6 +60,7 @@ export default function Home() {
   const [loading, setLoading] = useState(false);
   const [escuchando, setEscuchando] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const { messages, sendMessage, isLoading: chatLoading } = useCopilotChatInternal();
 
   const micRingsRef = useRef<HTMLSpanElement>(null);
   const micAnimRef = useRef<AnimeInstance | null>(null);
@@ -176,9 +180,20 @@ export default function Home() {
       );
     });
 
-  const diagnosticarConUbicacion = async () => {
-    const ubicacionActual = await solicitarUbicacion();
-    return ejecutarDiagnostico(undefined, ubicacionActual);
+  const enviarMensaje = async () => {
+    const mensaje = texto.trim();
+    if (!mensaje) {
+      setError("Describe el problema para poder diagnosticarlo.");
+      return;
+    }
+
+    await solicitarUbicacion();
+    setError(null);
+    await sendMessage({
+      id: crypto.randomUUID(),
+      role: "user",
+      content: `Usa la accion diagnosticarProblema para diagnosticar este problema: ${mensaje}`,
+    });
   };
 
   useCopilotAction(
@@ -342,11 +357,11 @@ export default function Home() {
 
                 <button
                   type="button"
-                  onClick={() => void diagnosticarConUbicacion().catch(() => undefined)}
-                  disabled={loading || estadoUbicacion === "solicitando"}
+                  onClick={() => void enviarMensaje().catch(() => undefined)}
+                  disabled={loading || chatLoading || estadoUbicacion === "solicitando"}
                   className="bg-cobalt px-3 py-2 text-sm font-semibold text-paper transition hover:bg-[#152fbf] disabled:cursor-not-allowed disabled:bg-steel"
                 >
-                  {loading ? "Diagnosticando…" : "Diagnosticar"}
+                  {loading || chatLoading ? "Diagnosticando…" : "Diagnosticar"}
                 </button>
               </div>
 
@@ -405,21 +420,65 @@ export default function Home() {
             </div>
           </div>
 
-          <div className="flex flex-col gap-5">
-            <SignalPanel resultado={resultado} loading={loading} />
-            <Matches resultado={resultado} loading={loading} />
-          </div>
+          <Conversacion
+            mensajes={messages}
+            resultado={resultado}
+            cargando={loading || chatLoading}
+          />
         </section>
       </main>
 
-      <CopilotPopup
-        labels={{
-          title: "ServicIA",
-          initial:
-            "Describime el problema y puedo correr el diagnóstico con la acción diagnosticarProblema.",
-        }}
-      />
     </div>
+  );
+}
+
+function Conversacion({
+  mensajes,
+  resultado,
+  cargando,
+}: {
+  mensajes: Array<{ id: string; role: string; content?: unknown }>;
+  resultado: OrquestacionResultado | null;
+  cargando: boolean;
+}) {
+  const mensajesDeTexto = mensajes.filter(
+    (mensaje) => typeof mensaje.content === "string" && mensaje.content.trim().length > 0,
+  );
+
+  return (
+    <section className="flex min-h-[32rem] flex-col border border-line bg-mist/40 p-4">
+      <div className="border-b border-line pb-3">
+        <p className="font-[family-name:var(--font-mono)] text-xs uppercase text-cobalt">
+          Conversacion
+        </p>
+        <h2 className="mt-1 font-[family-name:var(--font-display)] text-lg font-semibold">
+          Diagnostico en curso
+        </h2>
+      </div>
+
+      <div className="flex flex-1 flex-col gap-3 py-4">
+        {mensajesDeTexto.map((mensaje) => (
+          <p
+            key={mensaje.id}
+            className={
+              mensaje.role === "user"
+                ? "self-end bg-ink px-3 py-2 text-sm leading-6 text-paper"
+                : "self-start border border-line bg-paper px-3 py-2 text-sm leading-6 text-ink"
+            }
+          >
+            {mensaje.content as string}
+          </p>
+        ))}
+
+        {cargando ? <ChatDiagnostico status="executing" /> : null}
+        {resultado ? <ChatDiagnostico status="complete" resultado={resultado} /> : null}
+        {!cargando && !resultado && mensajesDeTexto.length === 0 ? (
+          <p className="m-auto max-w-56 text-center text-sm leading-6 text-steel">
+            Describe lo que paso y ServicIA va a encontrar a quien puede resolverlo.
+          </p>
+        ) : null}
+      </div>
+    </section>
   );
 }
 
@@ -542,142 +601,6 @@ function ChatDiagnostico({
         </div>
       </div>
     </section>
-  );
-}
-
-function SignalPanel({
-  resultado,
-  loading,
-}: {
-  resultado: OrquestacionResultado | null;
-  loading: boolean;
-}) {
-  const diagnostico = resultado?.diagnostico;
-
-  return (
-    <section className="border border-line bg-ink p-5 text-paper">
-      <div className="flex items-center justify-between gap-3">
-        <h2 className="font-[family-name:var(--font-display)] text-lg font-semibold">
-          Diagnóstico
-        </h2>
-        <span className="font-[family-name:var(--font-mono)] text-xs text-signal">
-          {diagnostico ? diagnostico.fuente_estimacion : "en espera"}
-        </span>
-      </div>
-
-      {loading ? (
-        <div className="relative mt-8 flex h-40 items-center justify-center">
-          <span className="sonar-ring absolute h-16 w-16 rounded-full border border-signal" />
-          <span
-            className="sonar-ring absolute h-16 w-16 rounded-full border border-signal"
-            style={{ animationDelay: "0.9s" }}
-          />
-          <span
-            className="sonar-ring absolute h-16 w-16 rounded-full border border-signal"
-            style={{ animationDelay: "1.8s" }}
-          />
-          <span className="relative h-3 w-3 rounded-full bg-signal" />
-        </div>
-      ) : diagnostico ? (
-        <div className="mt-5 grid gap-3 font-[family-name:var(--font-mono)] text-sm sm:grid-cols-2">
-          <Fact label="categoria" value={diagnostico.categoria} />
-          <Fact label="especialidad" value={diagnostico.sub_especialidad} />
-          <Fact label="urgencia" value={diagnostico.urgencia} />
-          <Fact label="tiempo" value={`${diagnostico.horas_estimadas} h`} />
-          <Fact
-            label="costo"
-            value={`${formatMoney(diagnostico.costo_estimado_min)} – ${formatMoney(
-              diagnostico.costo_estimado_max,
-            )}`}
-          />
-          <Fact
-            label="certificaciones"
-            value={
-              diagnostico.certificaciones_requeridas.join(", ") || "ninguna"
-            }
-          />
-        </div>
-      ) : (
-        <div className="mt-8 flex h-40 flex-col items-center justify-center gap-3 text-center">
-          <span className="h-2 w-2 rounded-full bg-signal/40" />
-          <p className="max-w-56 text-sm leading-6 text-paper/60">
-            Esperando una señal. El diagnóstico va a aparecer acá con
-            categoría, urgencia, costo y tiempo.
-          </p>
-        </div>
-      )}
-    </section>
-  );
-}
-
-function Matches({
-  resultado,
-  loading,
-}: {
-  resultado: OrquestacionResultado | null;
-  loading: boolean;
-}) {
-  return (
-    <section className="border border-line bg-paper p-5">
-      <div className="flex items-center justify-between gap-3">
-        <h2 className="font-[family-name:var(--font-display)] text-lg font-semibold">
-          Profesionales
-        </h2>
-        <span className="font-[family-name:var(--font-mono)] text-xs text-steel">
-          {resultado?.fallback_web ? "búsqueda web" : "base local"}
-        </span>
-      </div>
-
-      <div className="mt-4 flex flex-col gap-2">
-        {loading ? (
-          <>
-            <div className="h-20 animate-pulse bg-mist" />
-            <div className="h-20 animate-pulse bg-mist" />
-          </>
-        ) : resultado?.matches.length ? (
-          resultado.matches.map((match, index) => (
-            <article
-              key={match.profesional_id}
-              className="flex gap-4 border-t border-line py-3 first:border-t-0"
-            >
-              <span className="font-[family-name:var(--font-mono)] text-sm text-steel">
-                {String(index + 1).padStart(2, "0")}
-              </span>
-              <div className="flex-1">
-                <div className="flex flex-wrap items-baseline justify-between gap-2">
-                  <h3 className="font-medium text-ink">
-                    {match.profesional.nombre}
-                  </h3>
-                  <span className="font-[family-name:var(--font-mono)] text-sm font-medium text-cobalt">
-                    {(match.score * 100).toFixed(0)}%
-                  </span>
-                </div>
-                <p className="text-sm text-steel">
-                  {match.profesional.rubro} · {match.profesional.ubicacion.ciudad}
-                </p>
-                <p className="mt-2 text-sm leading-6 text-ink">
-                  {match.explicacion}
-                </p>
-              </div>
-            </article>
-          ))
-        ) : (
-          <p className="text-sm leading-6 text-steel">
-            Los profesionales van a aparecer acá después del diagnóstico,
-            ordenados por qué tan bien resuelven tu problema específico.
-          </p>
-        )}
-      </div>
-    </section>
-  );
-}
-
-function Fact({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="border border-paper/15 px-3 py-2">
-      <div className="text-signal/80">{label}</div>
-      <div className="mt-1 text-paper">{value}</div>
-    </div>
   );
 }
 

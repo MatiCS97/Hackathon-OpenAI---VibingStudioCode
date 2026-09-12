@@ -1,9 +1,11 @@
 import Anthropic from "@anthropic-ai/sdk";
 import type {
+  Message,
+  TextBlock,
   Tool,
   ToolUseBlock,
 } from "@anthropic-ai/sdk/resources/messages/messages";
-import type { Diagnostico } from "./types";
+import type { Diagnostico, FuenteWeb } from "./types";
 
 const DIAGNOSTICO_SCHEMA: Tool.InputSchema = {
   type: "object",
@@ -72,7 +74,6 @@ export async function diagnosticar(input: DiagnosticarInput): Promise<Diagnostic
   const message = await anthropic.messages.create({
     model: "claude-sonnet-5",
     max_tokens: 900,
-    temperature: 0,
     system:
       "Sos un agente de diagnostico para un marketplace de servicios en Paraguay. Responde usando exclusivamente la tool registrar_diagnostico con el contrato exacto. Estima costos en guaranies paraguayos.",
     messages: [{ role: "user", content }],
@@ -98,25 +99,55 @@ export async function diagnosticar(input: DiagnosticarInput): Promise<Diagnostic
   return validarDiagnostico(block.input);
 }
 
-export async function estimarConWebSearch(diagnostico: Diagnostico): Promise<Diagnostico> {
+// Dos llamadas a proposito: forzar tool_choice a registrar_diagnostico en la misma
+// llamada que web_search impide que el modelo llegue a buscar (la tool forzada se
+// invoca de inmediato), asi que primero se busca y despues se estructura.
+export async function estimarConWebSearch(
+  diagnostico: Diagnostico,
+): Promise<{ diagnostico: Diagnostico; fuentes: FuenteWeb[] }> {
   if (!process.env.ANTHROPIC_API_KEY) {
     throw new Error("Falta ANTHROPIC_API_KEY en el entorno.");
   }
 
-  const message = await anthropic.messages.create({
+  const busqueda = await anthropic.messages.create({
     model: "claude-sonnet-5",
-    max_tokens: 900,
-    temperature: 0,
+    max_tokens: 4000,
     system:
-      "Actualiza solamente costo_estimado_min, costo_estimado_max y horas_estimadas usando busqueda web cuando haga falta. Responde con la tool registrar_diagnostico.",
+      "Sos un agente de diagnostico para un marketplace de servicios en Paraguay. Busca en la web precios y tiempos actuales para el trabajo descrito y resumi los numeros que encuentres, en guaranies paraguayos.",
     messages: [
       {
         role: "user",
-        content: `Diagnostico local con bajo match: ${JSON.stringify(diagnostico)}. Busca referencias actuales si hace falta y devuelve el mismo contrato.`,
+        content: `Necesito precio y duracion de mercado para este trabajo: ${JSON.stringify(diagnostico)}. Busca referencias actuales y resumi los rangos encontrados.`,
+      },
+    ],
+    tools: [{ type: "web_search_20260209", name: "web_search", max_uses: 4 }],
+  });
+
+  const fuentes = extraerFuentes(busqueda);
+  const hallazgos = busqueda.content
+    .filter((item): item is TextBlock => item.type === "text")
+    .map((item) => item.text)
+    .join("\n")
+    .trim();
+
+  // Si la busqueda no trajo ninguna fuente, la estimacion no esta respaldada por
+  // la web: se devuelve el diagnostico local sin mentir sobre su origen.
+  if (fuentes.length === 0) {
+    return { diagnostico, fuentes };
+  }
+
+  const estructurado = await anthropic.messages.create({
+    model: "claude-sonnet-5",
+    max_tokens: 2000,
+    system:
+      "Actualiza solamente costo_estimado_min, costo_estimado_max y horas_estimadas segun los hallazgos de la busqueda web. Manten el resto del contrato igual. Responde usando la tool registrar_diagnostico.",
+    messages: [
+      {
+        role: "user",
+        content: `Diagnostico local con bajo match: ${JSON.stringify(diagnostico)}\n\nHallazgos de la busqueda web:\n${hallazgos}\n\nDevolve el mismo contrato con costo y horas actualizados.`,
       },
     ],
     tools: [
-      { type: "web_search_20250305", name: "web_search" },
       {
         name: "registrar_diagnostico",
         description: "Devuelve el diagnostico actualizado con estimacion respaldada.",
@@ -126,16 +157,37 @@ export async function estimarConWebSearch(diagnostico: Diagnostico): Promise<Dia
     tool_choice: { type: "tool", name: "registrar_diagnostico" },
   });
 
-  const block = message.content.find(
+  const block = estructurado.content.find(
     (item): item is ToolUseBlock =>
       item.type === "tool_use" && item.name === "registrar_diagnostico",
   );
 
   if (!block) {
-    return { ...diagnostico, fuente_estimacion: "web_search" };
+    return { diagnostico: { ...diagnostico, fuente_estimacion: "web_search" }, fuentes };
   }
 
-  return { ...validarDiagnostico(block.input), fuente_estimacion: "web_search" };
+  return {
+    diagnostico: { ...validarDiagnostico(block.input), fuente_estimacion: "web_search" },
+    fuentes,
+  };
+}
+
+function extraerFuentes(message: Message): FuenteWeb[] {
+  const fuentes = new Map<string, FuenteWeb>();
+
+  for (const bloque of message.content) {
+    if (bloque.type !== "web_search_tool_result") continue;
+    // En error, content es un objeto ({error_code}), no un array de resultados.
+    if (!Array.isArray(bloque.content)) continue;
+
+    for (const resultado of bloque.content) {
+      if (resultado.url) {
+        fuentes.set(resultado.url, { titulo: resultado.title, url: resultado.url });
+      }
+    }
+  }
+
+  return [...fuentes.values()];
 }
 
 function normalizarImagenBase64(imagenBase64?: string) {

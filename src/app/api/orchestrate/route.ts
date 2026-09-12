@@ -33,13 +33,15 @@ export async function POST(request: Request) {
     // necesita es un telefono. Las dos busquedas van en paralelo para no sumar
     // latencia una arriba de la otra.
     // Las dos son mejoras sobre el diagnostico, no el diagnostico: si una falla
-    // el cliente igual tiene que recibir lo que ya se calculo.
+    // o tarda, el cliente igual tiene que recibir lo que ya se calculo. Sin el
+    // techo de tiempo una busqueda lenta deja la pantalla cargando mas de un
+    // minuto por datos que son un extra.
     const [estimacionWeb, proveedoresWeb] = await Promise.all([
       resultadoMatching.fallback_web
-        ? estimarConWebSearch(diagnosticoInicial).catch(() => null)
+        ? conTecho(estimarConWebSearch(diagnosticoInicial), null)
         : null,
       resultadoMatching.matches.length === 0
-        ? buscarProveedoresWeb(diagnosticoInicial, ubicacionCliente).catch(() => [])
+        ? conTecho(buscarProveedoresWeb(diagnosticoInicial, ubicacionCliente), [])
         : [],
     ]);
 
@@ -58,6 +60,17 @@ export async function POST(request: Request) {
 
     return Response.json({ error: message }, { status: 500 });
   }
+}
+
+const TECHO_ENRIQUECIMIENTO_MS = 30_000;
+
+function conTecho<T>(promesa: Promise<T>, siFalla: T): Promise<T> {
+  return Promise.race([
+    promesa.catch(() => siFalla),
+    new Promise<T>((resolver) =>
+      setTimeout(() => resolver(siFalla), TECHO_ENRIQUECIMIENTO_MS),
+    ),
+  ]);
 }
 
 function esUbicacionValida(ubicacion?: UbicacionCliente): ubicacion is UbicacionCliente {

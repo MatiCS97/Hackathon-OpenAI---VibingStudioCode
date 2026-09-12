@@ -337,7 +337,9 @@ export async function buscarProveedoresWeb(
       // Sin user_location: la API solo acepta un set de paises y rechaza PY con
       // un 400. La zona va en el texto de la consulta, que alcanza para que la
       // busqueda devuelva negocios locales.
-      { type: "web_search_20260209", name: "web_search", max_uses: 4 },
+      // max_uses 2 y no 4: cada busqueda cuesta ~25s y con 4 el request llegaba a
+      // 111s medidos en produccion. Dos alcanzan para juntar 3-4 negocios.
+      { type: "web_search_20260209", name: "web_search", max_uses: 2 },
     ],
   });
 

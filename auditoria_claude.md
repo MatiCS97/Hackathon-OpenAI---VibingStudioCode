@@ -129,6 +129,41 @@ Tier gratis de Voyage: **3 requests/minuto, 10k tokens/minuto**. Cuenta:
 Recomendación: opción 1 (recortar dataset), es más rápido y elimina el riesgo por
 completo en vez de solo mitigarlo.
 
+## Cambio de proveedor de embeddings: Voyage → Gemini
+
+Fecha: 2026-09-12
+
+Decisión del equipo: reemplazar Voyage por **Google Gemini embeddings**
+(`text-embedding-004`, vía `@langchain/google-genai`) para evitar el límite de
+3 requests/minuto de Voyage. Motivo: el equipo ya tiene `@langchain/google-genai`
+y `@langchain/google-gauth` instalados en `package.json` desde antes del evento
+(sin usar todavía), y Google ofrece un rate limit de tier gratis bastante más
+alto para embeddings.
+
+**Para Codex, en `matching.ts`:**
+
+1. Reemplazar `VoyageAIClient`/`voyage.embed(...)` por el cliente de embeddings
+   de `@langchain/google-genai` (`GoogleGenerativeAIEmbeddings`, modelo
+   `text-embedding-004`). El resto del pipeline no cambia: seguir generando un
+   vector por perfil, cachear en disco (`data/profile-embeddings.json`, borrar
+   el cache viejo de Voyage si existe porque las dimensiones van a ser distintas),
+   y comparar con cosine similarity igual que ahora.
+2. Actualizar `.env.example` y `.env.local.example`: sacar `VOYAGE_API_KEY`,
+   agregar `GEMINI_API_KEY=` (o `GOOGLE_API_KEY=`, el nombre que use el SDK de
+   `@langchain/google-genai`).
+3. Sacar `voyageai` de `package.json` si ya no se usa en ningún otro lado.
+4. **Bloqueante**: todavía no hay una `GEMINI_API_KEY` probada compartida por el
+   equipo (a diferencia de Anthropic y Voyage, que sí se probaron antes del
+   evento). Alguien necesita conseguir/pegar esa key en `.env.local` (nunca
+   commitear) antes de poder probar el cambio. Avisar en el chat del equipo
+   apenas se tenga.
+5. Con esto, el problema de las ~52 minutos de generación para 20000 perfiles
+   (sección anterior) probablemente deje de ser un problema — pero igual conviene
+   confirmar el rate limit real del tier gratis de Gemini para embeddings antes
+   de asumir que desaparece del todo. Si el límite de Gemini también resulta
+   ajustado, la opción de recortar el dataset a ~2000 perfiles sigue siendo válida
+   como red de seguridad.
+
 ## Siguiente auditoría
 
 Voy a releer el repo después del próximo commit de Codex y actualizar este archivo con una Ronda 3.

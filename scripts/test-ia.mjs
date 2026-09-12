@@ -176,8 +176,8 @@ test("IA_PROVEEDOR=gemini reusa la GEMINI_API_KEY que ya alimenta el matching", 
 });
 
 test("IA_MODELO pisa el default de cualquier proveedor y un IA_PROVEEDOR raro avisa", () => {
-  conEntorno({ IA_PROVEEDOR: "openrouter", OPENROUTER_API_KEY: "sk-or-v1-test", IA_MODELO: "deepseek/deepseek-r1:free" }, () => {
-    assert.equal(configuracionDelServidor().modelo, "deepseek/deepseek-r1:free");
+  conEntorno({ IA_PROVEEDOR: "openrouter", OPENROUTER_API_KEY: "sk-or-v1-test", IA_MODELO: "inclusionai/ling-3.0-flash-vl:free" }, () => {
+    assert.equal(configuracionDelServidor().modelo, "inclusionai/ling-3.0-flash-vl:free");
   });
   conEntorno({ IA_PROVEEDOR: "mistral", ANTHROPIC_API_KEY: "sk-ant-test" }, () => {
     assert.throws(() => configuracionDelServidor(), /IA_PROVEEDOR desconocido/);
@@ -199,11 +199,11 @@ test("Gemini pega en su baseURL compatible, con su key y sin techo de tokens", a
 });
 
 test("OpenRouter pasa el slug tal cual, incluido el sufijo :free", async () => {
-  const router = { proveedor: "openrouter", modelo: "deepseek/deepseek-r1:free", apiKey: "sk-or-v1-test" };
+  const router = { proveedor: "openrouter", modelo: "inclusionai/ling-3.0-flash-vl:free", apiKey: "sk-or-v1-test" };
   await orquestar(request({ texto: "Caneria rota prueba openrouter", configuracionIA: router }));
   assert.equal(llamadas.length, 1);
   assert.equal(llamadas[0].url, "https://openrouter.ai/api/v1/chat/completions");
-  assert.equal(llamadas[0].body.model, "deepseek/deepseek-r1:free");
+  assert.equal(llamadas[0].body.model, "inclusionai/ling-3.0-flash-vl:free");
 });
 
 test("modelo que rechaza json_schema reintenta una vez con el esquema en el prompt", async () => {

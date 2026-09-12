@@ -17,9 +17,10 @@ export const MODELO_ANTHROPIC_ECONOMICO = "claude-haiku-4-5";
 export const MODELO_ANTHROPIC_COMPLETO = "claude-sonnet-5";
 
 // Catalogos de modelos con vision y salida estructurada. Anthropic y OpenAI
-// salen de sus docs; Gemini de la pagina de compatibilidad OpenAI de
-// ai.google.dev; OpenRouter de su propio /api/v1/models. El catalogo de
-// OpenRouter rota seguido, por eso el panel siempre deja escribir un slug a mano.
+// salen de sus docs. Los de Gemini y OpenRouter estan verificados uno por uno
+// contra sus /models el 12/09/2026, con una foto real y json_schema estricto: la
+// pagina de docs de Gemini lista modelos que su propia API no sirve. Ambos
+// catalogos rotan seguido, por eso el panel siempre deja escribir un slug a mano.
 export const MODELOS_POR_PROVEEDOR: Record<ProveedorIA, { id: string; nombre: string }[]> = {
   anthropic: [
     { id: MODELO_ANTHROPIC_ECONOMICO, nombre: "Claude Haiku 4.5 (mas barato)" },
@@ -33,9 +34,9 @@ export const MODELOS_POR_PROVEEDOR: Record<ProveedorIA, { id: string; nombre: st
   ],
   gemini: [
     { id: "gemini-3.1-flash-lite", nombre: "Gemini 3.1 Flash Lite (economico)" },
-    { id: "gemini-3-flash", nombre: "Gemini 3 Flash" },
+    { id: "gemini-3.5-flash-lite", nombre: "Gemini 3.5 Flash Lite" },
+    { id: "gemini-flash-lite-latest", nombre: "Gemini Flash Lite (siempre el actual)" },
     { id: "gemini-3.8-flash", nombre: "Gemini 3.8 Flash" },
-    { id: "gemini-3.1-pro", nombre: "Gemini 3.1 Pro" },
   ],
   openrouter: [
     { id: "google/gemini-3.8-flash", nombre: "Gemini 3.8 Flash (vision, barato)" },

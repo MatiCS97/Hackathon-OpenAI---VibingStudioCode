@@ -188,7 +188,7 @@ function PanelConfiguracionIA({ onCerrar, configuracion }: {
               <input
                 value={modelo}
                 onChange={(evento) => setModelo(evento.target.value)}
-                placeholder={proveedor === "openrouter" ? "ej: deepseek/deepseek-r1:free" : "ej: gpt-4o-mini"}
+                placeholder={proveedor === "openrouter" ? "ej: qwen/qwen3.8-flash" : "ej: gpt-4o-mini"}
                 className="border border-line bg-mist/60 px-3 py-2 text-sm outline-none focus:border-cobalt"
               />
             </label>

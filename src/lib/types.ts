@@ -40,7 +40,7 @@ export interface MatchProfesional {
 // segun la corrida: "Desconocido", "<UNKNOWN>", "No identificado". Lo comparten el
 // servidor, que reintenta describiendo la foto, y la UI, que pide mas datos.
 export function diagnosticoSinIdentificar(diagnostico: Diagnostico) {
-  return /desconoc|unknown|no identific|sin identific|indetermin/i.test(
+  return /desconoc|unknown|no identific|sin identific|indetermin|insuficiente/i.test(
     diagnostico.categoria,
   );
 }

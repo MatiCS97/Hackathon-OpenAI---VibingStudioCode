@@ -636,7 +636,8 @@ function ChatDiagnostico({
           ))}
           {matches.length === 0 ? (
             <p className="text-xs leading-5 text-steel">
-              No encontramos profesionales disponibles para este caso.
+              No encontramos profesionales para este caso. Contame un poco mas
+              sobre el problema o proba con otra foto, y vuelvo a buscar.
             </p>
           ) : null}
         </div>

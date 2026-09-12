@@ -31,7 +31,7 @@ type SpeechRecognitionLike = {
   maxAlternatives: number;
   onresult: ((event: SpeechRecognitionEventLike) => void) | null;
   onend: (() => void) | null;
-  onerror: (() => void) | null;
+  onerror: ((evento: { error?: string }) => void) | null;
   start: () => void;
 };
 
@@ -406,10 +406,23 @@ export default function Home() {
         event.results[event.results.length - 1]?.[0]?.transcript ?? "";
       setTexto((current) => `${current} ${transcript}`.trim());
     };
-    recognition.onerror = () => setEscuchando(false);
+    recognition.onerror = (evento) => {
+      setEscuchando(false);
+      setError(motivoDeVoz(evento.error));
+    };
     recognition.onend = () => setEscuchando(false);
-    setEscuchando(true);
-    recognition.start();
+
+    // start() puede tirar sincronicamente (permiso denegado, otra sesion de voz
+    // abierta). Marcar el estado despues evita que el boton quede clavado en
+    // "Escuchando" cuando en realidad nunca arranco.
+    try {
+      recognition.start();
+      setError(null);
+      setEscuchando(true);
+    } catch {
+      setEscuchando(false);
+      setError(motivoDeVoz());
+    }
   };
 
   return (
@@ -425,9 +438,6 @@ export default function Home() {
               Servic<span className="text-cobalt">IA</span>
             </span>
           </div>
-          <p className="font-[family-name:var(--font-mono)] text-xs text-steel">
-            20 000 profesionales conectados
-          </p>
         </header>
 
         <section className="grid gap-6 lg:grid-cols-[minmax(0,1.05fr)_minmax(0,0.95fr)] lg:items-start">
@@ -924,6 +934,28 @@ function ChatDiagnostico({
       </div>
     </section>
   );
+}
+
+// En el celular el microfono fallaba sin decir nada: el handler descartaba el
+// codigo de error, asi que un permiso denegado se veia igual que no pasar nada.
+function motivoDeVoz(codigo?: string) {
+  if (codigo === "not-allowed" || codigo === "service-not-allowed") {
+    return "El navegador bloqueo el microfono. Habilitalo para este sitio y proba de nuevo.";
+  }
+
+  if (codigo === "no-speech") {
+    return "No te escuche. Proba de nuevo hablando cerca del microfono.";
+  }
+
+  if (codigo === "audio-capture") {
+    return "No encontre un microfono disponible en este dispositivo.";
+  }
+
+  if (codigo === "network") {
+    return "La transcripcion necesita conexion y no pudo conectarse.";
+  }
+
+  return "No se pudo usar el microfono. Escribi el problema y sigo igual.";
 }
 
 function fileToDataUrl(file: File) {

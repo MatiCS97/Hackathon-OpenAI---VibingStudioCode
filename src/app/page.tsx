@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { CopilotPopup } from "@copilotkit/react-ui";
 import { useCopilotAction, useCopilotReadable } from "@copilotkit/react-core";
 import type { UbicacionCliente } from "@/lib/matching";
@@ -30,6 +30,18 @@ type SpeechRecognitionLike = {
 
 type SpeechRecognitionConstructor = new () => SpeechRecognitionLike;
 
+type AnimeInstance = { pause: () => void };
+type AnimeParams = Record<string, unknown>;
+type AnimeFn = ((params: AnimeParams) => AnimeInstance) & {
+  stagger: (value: number) => unknown;
+};
+
+declare global {
+  interface Window {
+    anime?: AnimeFn;
+  }
+}
+
 const TIPOS_IMAGEN_ADMITIDOS = ["image/jpeg", "image/png", "image/webp", "image/gif"];
 const TAMANO_MAXIMO_IMAGEN = 5 * 1024 * 1024;
 
@@ -46,6 +58,9 @@ export default function Home() {
   const [escuchando, setEscuchando] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const micRingsRef = useRef<HTMLSpanElement>(null);
+  const micAnimRef = useRef<AnimeInstance | null>(null);
+
   const resumenCopilot = useMemo(
     () => ({
       texto,
@@ -57,9 +72,38 @@ export default function Home() {
 
   useCopilotReadable({
     description:
-      "Estado actual del diagnostico, input del usuario y recomendaciones visibles en Orchestator.",
+      "Estado actual del diagnostico, input del usuario y recomendaciones visibles en ServicIA.",
     value: resumenCopilot,
   });
+
+  useEffect(() => {
+    const anime = window.anime;
+    const targets = micRingsRef.current?.querySelectorAll(".mic-ring");
+    if (!anime || !targets || targets.length === 0) return;
+
+    if (escuchando) {
+      micAnimRef.current = anime({
+        targets,
+        scale: [1, 2.8],
+        opacity: [0.6, 0],
+        easing: "easeOutSine",
+        duration: 1300,
+        loop: true,
+        delay: anime.stagger(320),
+      });
+    } else {
+      micAnimRef.current?.pause();
+      micAnimRef.current = null;
+      targets.forEach((el) => {
+        (el as HTMLElement).style.opacity = "0";
+        (el as HTMLElement).style.transform = "scale(1)";
+      });
+    }
+
+    return () => {
+      micAnimRef.current?.pause();
+    };
+  }, [escuchando]);
 
   const ejecutarDiagnostico = useCallback(
     async (textoManual?: string, ubicacionParaMatching = ubicacion) => {
@@ -141,7 +185,7 @@ export default function Home() {
     {
       name: "diagnosticarProblema",
       description:
-        "Diagnostica un problema de servicios y recomienda profesionales usando Orchestator.",
+        "Diagnostica un problema de servicios y recomienda profesionales usando ServicIA.",
       parameters: [
         {
           name: "texto",
@@ -209,44 +253,52 @@ export default function Home() {
   };
 
   return (
-    <div className="min-h-screen bg-[#f7f4ee] text-[#171717]">
-      <main className="mx-auto flex min-h-screen w-full max-w-6xl flex-col gap-6 px-4 py-6 sm:px-6 lg:px-8">
-        <header className="flex flex-col gap-3 border-b border-[#d9d2c5] pb-5 sm:flex-row sm:items-end sm:justify-between">
-          <div>
-            <p className="text-sm font-medium uppercase tracking-[0.16em] text-[#7b3f30]">
-              Marketplace generico de servicios
-            </p>
-            <h1 className="mt-2 text-4xl font-semibold tracking-normal text-[#202020]">
-              Orchestator
-            </h1>
+    <div className="min-h-screen bg-paper text-ink">
+      <main className="mx-auto flex min-h-screen w-full max-w-6xl flex-col gap-10 px-4 py-6 sm:px-6 lg:px-8">
+        <header className="flex items-center justify-between border-b border-line pb-5">
+          <div className="flex items-center gap-2">
+            <span className="relative flex h-2.5 w-2.5">
+              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-signal opacity-75" />
+              <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-cobalt" />
+            </span>
+            <span className="font-[family-name:var(--font-display)] text-xl font-semibold tracking-tight">
+              Servic<span className="text-cobalt">IA</span>
+            </span>
           </div>
-          <div className="grid grid-cols-3 gap-2 text-sm">
-            <Metric label="Perfiles" value="20k" />
-            <Metric label="Modo" value="Claude" />
-            <Metric label="Match" value="Voyage" />
-          </div>
+          <p className="font-[family-name:var(--font-mono)] text-xs text-steel">
+            20 000 profesionales conectados
+          </p>
         </header>
 
-        <section className="grid flex-1 gap-5 lg:grid-cols-[minmax(0,0.95fr)_minmax(0,1.05fr)]">
-          <div className="flex flex-col gap-4">
-            <div className="border border-[#d8d0c2] bg-white p-4 shadow-sm">
-              <label
-                htmlFor="problema"
-                className="text-sm font-semibold text-[#2f2f2f]"
-              >
-                Problema del cliente
+        <section className="grid gap-6 lg:grid-cols-[minmax(0,1.05fr)_minmax(0,0.95fr)] lg:items-start">
+          <div className="flex flex-col gap-5">
+            <div>
+              <h1 className="font-[family-name:var(--font-display)] text-4xl font-semibold leading-[1.05] tracking-tight sm:text-5xl">
+                Contanos qué
+                <br />
+                se rompió.
+              </h1>
+              <p className="mt-4 max-w-md text-base leading-6 text-steel">
+                Sacale una foto, describilo o hablalo. ServicIA lo diagnostica
+                al instante y te conecta con quien puede resolverlo hoy.
+              </p>
+            </div>
+
+            <div className="border border-line bg-paper p-4">
+              <label htmlFor="problema" className="text-sm font-medium text-ink">
+                Qué te está pasando
               </label>
               <textarea
                 id="problema"
                 value={texto}
                 onChange={(event) => setTexto(event.target.value)}
-                placeholder="Ej: Hay olor a gas cerca de la cocina y la llave principal esta dura."
-                className="mt-3 min-h-44 w-full resize-none border border-[#cfc7ba] bg-[#fbfaf7] p-3 text-base outline-none transition focus:border-[#2f5d50]"
+                placeholder="Ej: hay olor a gas cerca de la cocina y la llave principal está dura."
+                className="mt-3 min-h-40 w-full resize-none border border-line bg-mist/60 p-3 text-base leading-6 outline-none transition focus:border-cobalt"
               />
 
               <div className="mt-3 grid gap-2 sm:grid-cols-3">
-                <label className="flex cursor-pointer items-center justify-center border border-[#2f5d50] px-3 py-2 text-sm font-semibold text-[#2f5d50] transition hover:bg-[#e4efe9]">
-                  Foto
+                <label className="flex cursor-pointer items-center justify-center border border-line px-3 py-2 text-sm font-medium text-ink transition hover:border-cobalt hover:text-cobalt">
+                  Subir foto
                   <input
                     type="file"
                     accept="image/jpeg,image/png,image/webp,image/gif"
@@ -254,35 +306,50 @@ export default function Home() {
                     onChange={(event) => cargarImagen(event.target.files?.[0])}
                   />
                 </label>
+
                 <button
                   type="button"
                   onClick={iniciarVoz}
-                  className="border border-[#71533f] px-3 py-2 text-sm font-semibold text-[#71533f] transition hover:bg-[#efe5dc]"
+                  className={`relative flex items-center justify-center gap-2 border px-3 py-2 text-sm font-medium transition ${
+                    escuchando
+                      ? "border-cobalt bg-ink text-paper"
+                      : "border-line text-ink hover:border-cobalt hover:text-cobalt"
+                  }`}
                 >
-                  {escuchando ? "Escuchando" : "Microfono"}
+                  <span ref={micRingsRef} className="relative flex h-2 w-2 items-center justify-center">
+                    <span className="mic-ring absolute h-2 w-2 rounded-full bg-signal opacity-0" />
+                    <span className="mic-ring absolute h-2 w-2 rounded-full bg-signal opacity-0" />
+                    <span
+                      className={`relative h-2 w-2 rounded-full ${
+                        escuchando ? "bg-signal" : "bg-steel"
+                      }`}
+                    />
+                  </span>
+                  {escuchando ? "Escuchando…" : "Hablar"}
                 </button>
+
                 <button
                   type="button"
                   onClick={() => void diagnosticarConUbicacion().catch(() => undefined)}
                   disabled={loading || estadoUbicacion === "solicitando"}
-                  className="bg-[#1f5b4f] px-3 py-2 text-sm font-semibold text-white transition hover:bg-[#17463d] disabled:cursor-not-allowed disabled:bg-[#91aaa3]"
+                  className="bg-cobalt px-3 py-2 text-sm font-semibold text-paper transition hover:bg-[#152fbf] disabled:cursor-not-allowed disabled:bg-steel"
                 >
-                  {loading ? "Procesando" : "Diagnosticar"}
+                  {loading ? "Diagnosticando…" : "Diagnosticar"}
                 </button>
               </div>
 
-              <p className="mt-3 text-sm text-[#625b52]">
+              <p className="mt-3 font-[family-name:var(--font-mono)] text-xs text-steel">
                 {estadoUbicacion === "activa"
-                  ? "Ubicacion actual activa para ordenar profesionales cercanos."
+                  ? "ubicación activa — se prioriza cercanía"
                   : estadoUbicacion === "solicitando"
-                    ? "Solicitando ubicacion actual..."
+                    ? "solicitando ubicación…"
                     : estadoUbicacion === "no_disponible"
-                      ? "Se continuara sin ubicacion."
-                      : "Al diagnosticar se pedira permiso para usar tu ubicacion actual."}
+                      ? "sin ubicación — se continúa igual"
+                      : "al diagnosticar se pide tu ubicación"}
               </p>
 
               {imagenNombre ? (
-                <div className="mt-3 flex items-center gap-3 border border-[#ded7cb] bg-[#fbfaf7] p-2">
+                <div className="mt-3 flex items-center gap-3 border border-line bg-mist/60 p-2">
                   {imagenBase64 ? (
                     <img
                       src={imagenBase64}
@@ -290,8 +357,8 @@ export default function Home() {
                       className="h-14 w-14 object-cover"
                     />
                   ) : null}
-                  <p className="min-w-0 flex-1 truncate text-sm text-[#625b52]">
-                    Imagen adjunta: {imagenNombre}
+                  <p className="min-w-0 flex-1 truncate text-sm text-steel">
+                    {imagenNombre}
                   </p>
                   <button
                     type="button"
@@ -299,14 +366,14 @@ export default function Home() {
                       setImagenBase64(undefined);
                       setImagenNombre(undefined);
                     }}
-                    className="border border-[#71533f] px-2 py-1 text-sm font-semibold text-[#71533f] transition hover:bg-[#efe5dc]"
+                    className="border border-line px-2 py-1 text-sm font-medium text-ink transition hover:border-cobalt hover:text-cobalt"
                   >
                     Quitar
                   </button>
                 </div>
               ) : null}
               {error ? (
-                <p className="mt-3 border border-[#d39a8d] bg-[#fff3f0] px-3 py-2 text-sm text-[#8b2f21]">
+                <p className="mt-3 border border-[#e2b6ac] bg-[#fff2ef] px-3 py-2 text-sm text-[#8b2f21]">
                   {error}
                 </p>
               ) : null}
@@ -315,19 +382,19 @@ export default function Home() {
             <div className="grid gap-3 sm:grid-cols-2">
               <QuickPrompt
                 title="Emergencia hogar"
-                text="Hay una perdida de agua fuerte debajo del lavatorio del bano y no puedo cerrar la llave."
+                text="Hay una pérdida de agua fuerte debajo del lavatorio del baño y no puedo cerrar la llave."
                 onPick={setTexto}
               />
               <QuickPrompt
-                title="Diagnostico tecnico"
-                text="El tablero electrico hace chispas cuando prendo el aire acondicionado."
+                title="Riesgo eléctrico"
+                text="El tablero eléctrico hace chispas cuando prendo el aire acondicionado."
                 onPick={setTexto}
               />
             </div>
           </div>
 
-          <div className="flex flex-col gap-4">
-            <DiagnosticoCard resultado={resultado} loading={loading} />
+          <div className="flex flex-col gap-5">
+            <SignalPanel resultado={resultado} loading={loading} />
             <Matches resultado={resultado} loading={loading} />
           </div>
         </section>
@@ -335,22 +402,11 @@ export default function Home() {
 
       <CopilotPopup
         labels={{
-          title: "Orchestator",
+          title: "ServicIA",
           initial:
-            "Describime el problema y puedo correr el diagnostico con la accion diagnosticarProblema.",
+            "Describime el problema y puedo correr el diagnóstico con la acción diagnosticarProblema.",
         }}
       />
-    </div>
-  );
-}
-
-function Metric({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="border border-[#d8d0c2] bg-white px-3 py-2 text-right">
-      <div className="text-xs uppercase tracking-[0.14em] text-[#7a7166]">
-        {label}
-      </div>
-      <div className="text-lg font-semibold">{value}</div>
     </div>
   );
 }
@@ -368,15 +424,15 @@ function QuickPrompt({
     <button
       type="button"
       onClick={() => onPick(text)}
-      className="border border-[#d8d0c2] bg-white p-3 text-left transition hover:border-[#2f5d50]"
+      className="border border-line bg-paper p-3 text-left transition hover:border-cobalt"
     >
-      <div className="text-sm font-semibold text-[#262626]">{title}</div>
-      <div className="mt-1 text-sm leading-5 text-[#625b52]">{text}</div>
+      <div className="text-sm font-medium text-ink">{title}</div>
+      <div className="mt-1 text-sm leading-5 text-steel">{text}</div>
     </button>
   );
 }
 
-function DiagnosticoCard({
+function SignalPanel({
   resultado,
   loading,
 }: {
@@ -386,43 +442,56 @@ function DiagnosticoCard({
   const diagnostico = resultado?.diagnostico;
 
   return (
-    <section className="border border-[#d8d0c2] bg-white p-4 shadow-sm">
+    <section className="border border-line bg-ink p-5 text-paper">
       <div className="flex items-center justify-between gap-3">
-        <h2 className="text-xl font-semibold">Diagnostico</h2>
-        <span className="border border-[#d8d0c2] px-2 py-1 text-xs uppercase tracking-[0.12em] text-[#625b52]">
-          {diagnostico?.fuente_estimacion ?? "pendiente"}
+        <h2 className="font-[family-name:var(--font-display)] text-lg font-semibold">
+          Diagnóstico
+        </h2>
+        <span className="font-[family-name:var(--font-mono)] text-xs text-signal">
+          {diagnostico ? diagnostico.fuente_estimacion : "en espera"}
         </span>
       </div>
 
       {loading ? (
-        <div className="mt-5 h-28 animate-pulse bg-[#eee8dd]" />
-      ) : diagnostico ? (
-        <div className="mt-4 grid gap-3 sm:grid-cols-2">
-          <Fact label="Categoria" value={diagnostico.categoria} />
-          <Fact label="Especialidad" value={diagnostico.sub_especialidad} />
-          <Fact label="Urgencia" value={diagnostico.urgencia} />
-          <Fact
-            label="Tiempo"
-            value={`${diagnostico.horas_estimadas} horas`}
+        <div className="relative mt-8 flex h-40 items-center justify-center">
+          <span className="sonar-ring absolute h-16 w-16 rounded-full border border-signal" />
+          <span
+            className="sonar-ring absolute h-16 w-16 rounded-full border border-signal"
+            style={{ animationDelay: "0.9s" }}
           />
+          <span
+            className="sonar-ring absolute h-16 w-16 rounded-full border border-signal"
+            style={{ animationDelay: "1.8s" }}
+          />
+          <span className="relative h-3 w-3 rounded-full bg-signal" />
+        </div>
+      ) : diagnostico ? (
+        <div className="mt-5 grid gap-3 font-[family-name:var(--font-mono)] text-sm sm:grid-cols-2">
+          <Fact label="categoria" value={diagnostico.categoria} />
+          <Fact label="especialidad" value={diagnostico.sub_especialidad} />
+          <Fact label="urgencia" value={diagnostico.urgencia} />
+          <Fact label="tiempo" value={`${diagnostico.horas_estimadas} h`} />
           <Fact
-            label="Costo estimado"
-            value={`${formatMoney(diagnostico.costo_estimado_min)} - ${formatMoney(
+            label="costo"
+            value={`${formatMoney(diagnostico.costo_estimado_min)} – ${formatMoney(
               diagnostico.costo_estimado_max,
             )}`}
           />
           <Fact
-            label="Certificaciones"
+            label="certificaciones"
             value={
-              diagnostico.certificaciones_requeridas.join(", ") || "Sin requisito"
+              diagnostico.certificaciones_requeridas.join(", ") || "ninguna"
             }
           />
         </div>
       ) : (
-        <p className="mt-4 text-sm leading-6 text-[#625b52]">
-          El resultado aparecera aca con categoria, subespecialidad, urgencia,
-          certificaciones, costo y tiempo.
-        </p>
+        <div className="mt-8 flex h-40 flex-col items-center justify-center gap-3 text-center">
+          <span className="h-2 w-2 rounded-full bg-signal/40" />
+          <p className="max-w-56 text-sm leading-6 text-paper/60">
+            Esperando una señal. El diagnóstico va a aparecer acá con
+            categoría, urgencia, costo y tiempo.
+          </p>
+        </div>
       )}
     </section>
   );
@@ -436,47 +505,53 @@ function Matches({
   loading: boolean;
 }) {
   return (
-    <section className="border border-[#d8d0c2] bg-white p-4 shadow-sm">
+    <section className="border border-line bg-paper p-5">
       <div className="flex items-center justify-between gap-3">
-        <h2 className="text-xl font-semibold">Profesionales</h2>
-        <span className="text-sm text-[#625b52]">
-          {resultado?.fallback_web ? "fallback web activo" : "base local"}
+        <h2 className="font-[family-name:var(--font-display)] text-lg font-semibold">
+          Profesionales
+        </h2>
+        <span className="font-[family-name:var(--font-mono)] text-xs text-steel">
+          {resultado?.fallback_web ? "búsqueda web" : "base local"}
         </span>
       </div>
 
-      <div className="mt-4 flex flex-col gap-3">
+      <div className="mt-4 flex flex-col gap-2">
         {loading ? (
           <>
-            <div className="h-24 animate-pulse bg-[#eee8dd]" />
-            <div className="h-24 animate-pulse bg-[#eee8dd]" />
+            <div className="h-20 animate-pulse bg-mist" />
+            <div className="h-20 animate-pulse bg-mist" />
           </>
         ) : resultado?.matches.length ? (
-          resultado.matches.map((match) => (
+          resultado.matches.map((match, index) => (
             <article
               key={match.profesional_id}
-              className="border border-[#ded7cb] bg-[#fbfaf7] p-3"
+              className="flex gap-4 border-t border-line py-3 first:border-t-0"
             >
-              <div className="flex flex-wrap items-start justify-between gap-2">
-                <div>
-                  <h3 className="font-semibold">{match.profesional.nombre}</h3>
-                  <p className="text-sm text-[#625b52]">
-                    {match.profesional.rubro} en{" "}
-                    {match.profesional.ubicacion.ciudad}
-                  </p>
+              <span className="font-[family-name:var(--font-mono)] text-sm text-steel">
+                {String(index + 1).padStart(2, "0")}
+              </span>
+              <div className="flex-1">
+                <div className="flex flex-wrap items-baseline justify-between gap-2">
+                  <h3 className="font-medium text-ink">
+                    {match.profesional.nombre}
+                  </h3>
+                  <span className="font-[family-name:var(--font-mono)] text-sm font-medium text-cobalt">
+                    {(match.score * 100).toFixed(0)}%
+                  </span>
                 </div>
-                <span className="bg-[#1f5b4f] px-2 py-1 text-sm font-semibold text-white">
-                  {(match.score * 100).toFixed(0)}%
-                </span>
+                <p className="text-sm text-steel">
+                  {match.profesional.rubro} · {match.profesional.ubicacion.ciudad}
+                </p>
+                <p className="mt-2 text-sm leading-6 text-ink">
+                  {match.explicacion}
+                </p>
               </div>
-              <p className="mt-3 text-sm leading-6 text-[#2f2f2f]">
-                {match.explicacion}
-              </p>
             </article>
           ))
         ) : (
-          <p className="text-sm leading-6 text-[#625b52]">
-            Los matches apareceran despues del diagnostico. Se aplican
-            disponibilidad, rubro/especialidad y certificaciones duras.
+          <p className="text-sm leading-6 text-steel">
+            Los profesionales van a aparecer acá después del diagnóstico,
+            ordenados por qué tan bien resuelven tu problema específico.
           </p>
         )}
       </div>
@@ -486,11 +561,9 @@ function Matches({
 
 function Fact({ label, value }: { label: string; value: string }) {
   return (
-    <div className="border border-[#ded7cb] bg-[#fbfaf7] p-3">
-      <div className="text-xs uppercase tracking-[0.14em] text-[#7a7166]">
-        {label}
-      </div>
-      <div className="mt-1 text-sm font-semibold leading-5">{value}</div>
+    <div className="border border-paper/15 px-3 py-2">
+      <div className="text-signal/80">{label}</div>
+      <div className="mt-1 text-paper">{value}</div>
     </div>
   );
 }

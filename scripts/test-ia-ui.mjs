@@ -43,6 +43,13 @@ try {
     await dialogo.getByRole("button", { name: "OpenAI", exact: true }).click();
     assert.equal(await dialogo.getByRole("combobox").inputValue(), "gpt-5-nano");
     assert.equal(await dialogo.locator("option").count(), 5);
+    await dialogo.getByRole("button", { name: "Google Gemini", exact: true }).click();
+    assert.equal(await dialogo.getByRole("combobox").inputValue(), "gemini-3.1-flash-lite");
+    // La limitacion se avisa antes de que gaste una consulta en descubrirla.
+    await dialogo.getByText(/no expone busqueda web/).waitFor();
+    await dialogo.getByRole("button", { name: "OpenRouter", exact: true }).click();
+    assert.equal(await dialogo.getByRole("combobox").inputValue(), "google/gemini-3.8-flash");
+    await dialogo.getByRole("button", { name: "OpenAI", exact: true }).click();
     await dialogo.getByLabel("Tu API key de OpenAI").fill("sk-browser-test");
     await page.screenshot({ path: join(capturas, `modelos-${width}.png`), fullPage: true });
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);

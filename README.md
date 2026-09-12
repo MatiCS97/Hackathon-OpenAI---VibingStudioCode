@@ -25,9 +25,10 @@ El chat sigue disponible para preguntas explícitas sobre el resultado.
 
 ## Modelos y consumo
 
-En **Configurar IA**, cada visitante puede guardar su API key de Anthropic u OpenAI,
-elegir un modelo de la lista o ingresar otro ID compatible con visión y salida
-estructurada. Cambiar de modelo del mismo proveedor conserva la key guardada.
+En **Configurar IA**, cada visitante puede guardar su API key de Anthropic, OpenAI,
+Google Gemini u OpenRouter, elegir un modelo de la lista o ingresar otro ID compatible
+con visión y salida estructurada. Cambiar de modelo del mismo proveedor conserva la key
+guardada.
 La configuración se guarda en `localStorage` del navegador y se envía al servidor
 para cada consulta; la aplicación no escribe las claves en archivos, logs ni Git.
 Usar **Volver a la key del equipo** elimina la clave personal guardada.
@@ -42,6 +43,21 @@ Fuentes verificadas el 12/09/2026: [GPT-5 nano](https://developers.openai.com/ap
 [GPT-5.4 mini](https://developers.openai.com/api/docs/models/gpt-5.4-mini).
 El acceso a cada modelo depende de la cuenta del visitante.
 
+**Gemini y OpenRouter** entran por la misma ruta: ambos exponen el dialecto de OpenAI
+en `/chat/completions`, así que se usa el mismo SDK con otra `baseURL`
+(`generativelanguage.googleapis.com/v1beta/openai/` y `openrouter.ai/api/v1`). Lo que
+cambia respecto de OpenAI es la envoltura del JSON — `response_format` en lugar de la
+Responses API, que ninguno de los dos implementa — y la búsqueda web. En OpenRouter
+sirve cualquier slug de [openrouter.ai/models](https://openrouter.ai/models), incluidos
+los `:free`; conviene uno con visión si se van a subir fotos. Los modelos que no aceptan
+`json_schema` reciben un único reintento con `json_object` y el esquema en el prompt,
+porque ese catálogo es heterogéneo.
+
+**Gemini no expone búsqueda web** por su API compatible con OpenAI. El diagnóstico y el
+matching funcionan igual, pero no trae teléfonos de la web: en modo completo devuelve la
+estimación local sin marcarla como respaldada, en vez de inventar contactos. OpenRouter
+sí busca, con el sufijo `:online` sobre el mismo slug.
+
 **Modo económico (predeterminado):**
 
 - Una llamada de diagnóstico con el modelo elegido, sin lecturas adicionales de fotos
@@ -53,7 +69,8 @@ El acceso a cada modelo depende de la cuenta del visitante.
   persisten en disco; la caché no se comparte entre instancias de Vercel.
 - Sin búsqueda web automática. Si faltan profesionales, un enlace abre Google en
   otra pestaña sin consumir tokens de la aplicación.
-- Sin key personal, usa Haiku 4.5 del equipo, o GPT-5 nano si el servidor usa OpenAI.
+- Sin key personal, usa el modelo económico del proveedor que tenga configurado el
+  servidor: Haiku 4.5, GPT-5 nano, Gemini 3.1 Flash Lite o el slug de OpenRouter.
   Una selección personal de modelo siempre se respeta.
 
 El **modo completo** mantiene matching semántico, chat y búsquedas automáticas, con
@@ -67,8 +84,10 @@ sin texto, imágenes ni claves; no incluyen el consumo del chat ni de búsquedas
 **1. Diagnóstico — `src/lib/diagnostico.ts`**
 
 Claude recibe el texto, la foto, o ambos, y responde a través de una tool con
-`tool_choice` forzado. OpenAI usa Responses API con JSON Schema estricto. Ambos
-devuelven el mismo contrato que valida el servidor.
+`tool_choice` forzado. OpenAI usa Responses API con JSON Schema estricto
+(`src/lib/diagnostico-openai.ts`), y Gemini y OpenRouter comparten
+`src/lib/diagnostico-compatible.ts` sobre `/chat/completions`. Los tres devuelven el
+mismo contrato, validado por el servidor con el mismo código.
 
 En modo completo, una foto sin identificar puede recibir un pase descriptivo y una
 nueva clasificación usando esa descripción, sin adjuntar la foto otra vez. En modo
@@ -101,7 +120,9 @@ certificaciones, trabajos completados, ciudad — en vez de una frase genérica.
 
 **4. Enriquecimiento web (solo modo completo)**
 
-Se usa la herramienta web de Anthropic u OpenAI según la configuración:
+Se usa la herramienta web del proveedor configurado — `web_search` en Anthropic,
+`web_search_preview` en OpenAI, el sufijo `:online` en OpenRouter, y nada en Gemini,
+que no la ofrece por su API compatible:
 
 - Si el mejor match queda por debajo del umbral, se busca el **costo real de mercado** y
   se reemplaza la estimación, marcando `fuente_estimacion: "web_search"`.
@@ -158,17 +179,23 @@ ANTHROPIC_API_KEY=
 GEMINI_API_KEY=
 ```
 
-Para usar OpenAI como proveedor del servidor:
+Para mover el servidor entero a otro proveedor, `IA_PROVEEDOR` acepta `anthropic`,
+`openai`, `gemini` u `openrouter`, y cada uno lee su propia clave:
 
 ```env
-IA_PROVEEDOR=openai
-OPENAI_API_KEY=
-OPENAI_MODELO=gpt-5-nano
+IA_PROVEEDOR=gemini       # reusa la GEMINI_API_KEY de arriba, sin cuenta nueva
+IA_PROVEEDOR=openai       # necesita OPENAI_API_KEY
+IA_PROVEEDOR=openrouter   # necesita OPENROUTER_API_KEY
 ```
 
-`OPENAI_MODELO` es opcional (por defecto `gpt-5-nano`). Gemini solo es necesario para
-el matching semántico del modo completo. También se puede iniciar sin claves del
-equipo y cargar una clave personal desde **Configurar IA**.
+`IA_MODELO` es opcional y sirve para cualquier proveedor; sin ella se usa el modelo
+económico de cada uno. `OPENAI_MODELO` se sigue leyendo por compatibilidad con los
+deploys anteriores. Si `IA_PROVEEDOR` está puesta y falta su clave, el servidor lo dice
+en vez de caer en silencio a otra cuenta.
+
+Gemini también se usa, aparte del diagnóstico, para el matching semántico del modo
+completo; esa parte siempre necesita `GEMINI_API_KEY`. También se puede iniciar sin
+claves del equipo y cargar una clave personal desde **Configurar IA**.
 
 3. Iniciar el proyecto:
 

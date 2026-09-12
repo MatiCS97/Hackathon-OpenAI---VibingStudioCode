@@ -28,7 +28,9 @@ function modeloWeb(modelo: string) {
 // piezas distintas: json_schema en vez de tool_choice forzado, web_search_preview
 // en vez de web_search, input_image en vez de un bloque de imagen aparte.
 
-const DIAGNOSTICO_JSON_SCHEMA = {
+// Exportados para diagnostico-compatible.ts: Gemini y OpenRouter piden el mismo
+// JSON Schema con otra envoltura, no hace falta una segunda copia del contrato.
+export const DIAGNOSTICO_JSON_SCHEMA = {
   type: "object",
   additionalProperties: false,
   properties: {
@@ -53,7 +55,7 @@ const DIAGNOSTICO_JSON_SCHEMA = {
   ],
 };
 
-const PROVEEDORES_JSON_SCHEMA = {
+export const PROVEEDORES_JSON_SCHEMA = {
   type: "object",
   additionalProperties: false,
   properties: {
@@ -347,14 +349,14 @@ function extraerFuentes(respuesta: OpenAI.Responses.Response): FuenteWeb[] {
 
 // OpenAI acepta la imagen tal cual como data URL, a diferencia de Anthropic que
 // pide el base64 separado del media_type — no hace falta desarmar el string.
-function aDataUrl(imagenBase64?: string) {
+export function aDataUrl(imagenBase64?: string) {
   if (!imagenBase64) return null;
   return imagenBase64.startsWith("data:")
     ? imagenBase64
     : `data:image/jpeg;base64,${imagenBase64}`;
 }
 
-function parsearJson(texto: string): unknown {
+export function parsearJson(texto: string): unknown {
   try {
     return JSON.parse(texto);
   } catch {
@@ -362,7 +364,7 @@ function parsearJson(texto: string): unknown {
   }
 }
 
-function validarDiagnostico(value: unknown): Diagnostico {
+export function validarDiagnostico(value: unknown): Diagnostico {
   if (!isRecord(value)) {
     throw new Error("Diagnostico invalido: no es un objeto.");
   }
@@ -392,11 +394,11 @@ function normalizarUrgencia(value: unknown): Diagnostico["urgencia"] {
   return value === "alta" || value === "media" || value === "baja" ? value : "media";
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
+export function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
 }
 
-function textoOpcional(valor: unknown) {
+export function textoOpcional(valor: unknown) {
   const texto = typeof valor === "string" ? valor.trim() : "";
   return texto.length > 0 ? texto : null;
 }

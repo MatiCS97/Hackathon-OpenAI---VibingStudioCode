@@ -6,12 +6,17 @@ import type {
   ToolUseBlock,
 } from "@anthropic-ai/sdk/resources/messages/messages";
 import {
+  buscarProveedoresWebCompatible,
+  diagnosticarCompatible,
+  estimarConWebSearchCompatible,
+} from "./diagnostico-compatible";
+import {
   buscarProveedoresWebOpenAI,
   diagnosticarOpenAI,
   estimarConWebSearchOpenAI,
 } from "./diagnostico-openai";
 import { diagnosticoSinIdentificar } from "./types";
-import type { ConfiguracionIA, ModoIA } from "./ia-config";
+import { esCompatible, type ConfiguracionIA, type ModoIA } from "./ia-config";
 import type { Diagnostico, FuenteWeb, ProveedorWeb } from "./types";
 
 const MODELO_ANTHROPIC_POR_DEFECTO = "claude-sonnet-5";
@@ -75,6 +80,10 @@ export async function diagnosticar(
 ): Promise<Diagnostico> {
   if (config?.proveedor === "openai") {
     return diagnosticarOpenAI(input, config.apiKey, config.modelo, modo, signal);
+  }
+
+  if (config && esCompatible(config.proveedor)) {
+    return diagnosticarCompatible(input, config.proveedor, config.apiKey, config.modelo, modo, signal);
   }
 
   const anthropic = clienteAnthropic(config);
@@ -207,6 +216,10 @@ export async function estimarConWebSearch(
 ): Promise<{ diagnostico: Diagnostico; fuentes: FuenteWeb[] }> {
   if (config?.proveedor === "openai") {
     return estimarConWebSearchOpenAI(diagnostico, config.apiKey, config.modelo, signal);
+  }
+
+  if (config && esCompatible(config.proveedor)) {
+    return estimarConWebSearchCompatible(diagnostico, config.proveedor, config.apiKey, config.modelo, signal);
   }
 
   const anthropic = clienteAnthropic(config);
@@ -375,6 +388,10 @@ export async function buscarProveedoresWeb(
 ): Promise<ProveedorWeb[]> {
   if (config?.proveedor === "openai") {
     return buscarProveedoresWebOpenAI(diagnostico, config.apiKey, config.modelo, ubicacion, signal);
+  }
+
+  if (config && esCompatible(config.proveedor)) {
+    return buscarProveedoresWebCompatible(diagnostico, config.proveedor, config.apiKey, config.modelo, ubicacion, signal);
   }
 
   const anthropic = clienteAnthropic(config);

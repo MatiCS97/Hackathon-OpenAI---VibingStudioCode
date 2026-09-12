@@ -2,7 +2,30 @@
 
 import { useEffect, useState } from "react";
 import { useConfiguracionIA } from "@/hooks/use-configuracion-ia";
-import { MODELOS_ANTHROPIC, MODELOS_OPENAI, MODELO_ANTHROPIC_ECONOMICO, MODELO_OPENAI_ECONOMICO, type ProveedorIA } from "@/lib/ia-config";
+import {
+  MODELOS_POR_PROVEEDOR,
+  MODELO_ECONOMICO_POR_PROVEEDOR,
+  NOMBRE_PROVEEDOR,
+  type ProveedorIA,
+} from "@/lib/ia-config";
+
+const PROVEEDORES = Object.keys(NOMBRE_PROVEEDOR) as ProveedorIA[];
+
+const EJEMPLO_DE_KEY: Record<ProveedorIA, string> = {
+  anthropic: "sk-ant-...",
+  openai: "sk-...",
+  gemini: "AIza...",
+  openrouter: "sk-or-v1-...",
+};
+
+// Lo que cambia de proveedor a proveedor mas alla del modelo, dicho antes de que
+// el visitante gaste una consulta para descubrirlo.
+const NOTA_POR_PROVEEDOR: Partial<Record<ProveedorIA, string>> = {
+  gemini:
+    "Gemini no expone busqueda web por su API compatible con OpenAI: el diagnostico y el matching funcionan igual, pero no trae telefonos de la web.",
+  openrouter:
+    "Cualquier slug de openrouter.ai/models sirve, incluidos los que terminan en :free. Elegi uno con vision si vas a subir fotos.",
+};
 
 export function BotonConfiguracionIA() {
   const [abierto, setAbierto] = useState(false);
@@ -31,11 +54,11 @@ function PanelConfiguracionIA({ onCerrar, configuracion }: {
   const { config, guardar, modo, cambiarModo } = configuracion;
   const [proveedor, setProveedor] = useState<ProveedorIA>(config?.proveedor ?? "anthropic");
   const [modelo, setModelo] = useState(
-    config?.modelo ?? MODELO_ANTHROPIC_ECONOMICO,
+    config?.modelo ?? MODELO_ECONOMICO_POR_PROVEEDOR.anthropic,
   );
   const [apiKey, setApiKey] = useState("");
   const [error, setError] = useState<string | null>(null);
-  const modelos = proveedor === "anthropic" ? MODELOS_ANTHROPIC : MODELOS_OPENAI;
+  const modelos = MODELOS_POR_PROVEEDOR[proveedor];
   const [personalizado, setPersonalizado] = useState(
     Boolean(config && !modelos.some((item) => item.id === config.modelo)),
   );
@@ -52,7 +75,7 @@ function PanelConfiguracionIA({ onCerrar, configuracion }: {
   const cambiarProveedor = (nuevo: ProveedorIA) => {
     if (nuevo === proveedor) return;
     setProveedor(nuevo);
-    setModelo(nuevo === "anthropic" ? MODELO_ANTHROPIC_ECONOMICO : MODELO_OPENAI_ECONOMICO);
+    setModelo(MODELO_ECONOMICO_POR_PROVEEDOR[nuevo]);
     setPersonalizado(false);
     setApiKey("");
   };
@@ -116,31 +139,26 @@ function PanelConfiguracionIA({ onCerrar, configuracion }: {
             />
           </label>
           <div className="grid grid-cols-2 gap-2">
-            <button
-              type="button"
-              aria-pressed={proveedor === "anthropic"}
-              onClick={() => cambiarProveedor("anthropic")}
-              className={`border px-3 py-2 text-sm font-medium transition ${
-                proveedor === "anthropic"
-                  ? "border-cobalt bg-ink text-paper"
-                  : "border-line text-ink hover:border-cobalt"
-              }`}
-            >
-              Claude (Anthropic)
-            </button>
-            <button
-              type="button"
-              aria-pressed={proveedor === "openai"}
-              onClick={() => cambiarProveedor("openai")}
-              className={`border px-3 py-2 text-sm font-medium transition ${
-                proveedor === "openai"
-                  ? "border-cobalt bg-ink text-paper"
-                  : "border-line text-ink hover:border-cobalt"
-              }`}
-            >
-              OpenAI
-            </button>
+            {PROVEEDORES.map((item) => (
+              <button
+                key={item}
+                type="button"
+                aria-pressed={proveedor === item}
+                onClick={() => cambiarProveedor(item)}
+                className={`border px-3 py-2 text-sm font-medium transition ${
+                  proveedor === item
+                    ? "border-cobalt bg-ink text-paper"
+                    : "border-line text-ink hover:border-cobalt"
+                }`}
+              >
+                {NOMBRE_PROVEEDOR[item]}
+              </button>
+            ))}
           </div>
+
+          {NOTA_POR_PROVEEDOR[proveedor] ? (
+            <p className="text-sm leading-5 text-steel">{NOTA_POR_PROVEEDOR[proveedor]}</p>
+          ) : null}
 
             <label className="flex flex-col gap-1 text-sm">
               <span className="font-medium text-ink">Modelo</span>
@@ -170,7 +188,7 @@ function PanelConfiguracionIA({ onCerrar, configuracion }: {
               <input
                 value={modelo}
                 onChange={(evento) => setModelo(evento.target.value)}
-                placeholder="ej: gpt-4o-mini"
+                placeholder={proveedor === "openrouter" ? "ej: deepseek/deepseek-r1:free" : "ej: gpt-4o-mini"}
                 className="border border-line bg-mist/60 px-3 py-2 text-sm outline-none focus:border-cobalt"
               />
             </label>
@@ -178,13 +196,13 @@ function PanelConfiguracionIA({ onCerrar, configuracion }: {
 
           <label className="flex flex-col gap-1 text-sm">
             <span className="font-medium text-ink">
-              Tu API key de {proveedor === "anthropic" ? "Anthropic" : "OpenAI"}
+              Tu API key de {NOMBRE_PROVEEDOR[proveedor]}
             </span>
             <input
               type="password"
               value={apiKey}
               onChange={(evento) => setApiKey(evento.target.value)}
-              placeholder={config?.proveedor === proveedor ? "Key guardada (dejar vacio para conservar)" : proveedor === "anthropic" ? "sk-ant-..." : "sk-..."}
+              placeholder={config?.proveedor === proveedor ? "Key guardada (dejar vacio para conservar)" : EJEMPLO_DE_KEY[proveedor]}
               autoComplete="off"
               className="border border-line bg-mist/60 px-3 py-2 font-[family-name:var(--font-mono)] text-sm outline-none focus:border-cobalt"
             />

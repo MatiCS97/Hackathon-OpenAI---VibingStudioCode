@@ -23,10 +23,16 @@
   --font-mono: var(--font-mono);
 }
 
+:root {
+  --font-body: "Inter", Arial, Helvetica, sans-serif;
+  --font-display: "Space Grotesk", "Inter", Arial, Helvetica, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, monospace;
+}
+
 body {
   background: var(--paper);
   color: var(--ink);
-  font-family: var(--font-body), Arial, Helvetica, sans-serif;
+  font-family: var(--font-body);
 }
 
 @keyframes sonar-ping {

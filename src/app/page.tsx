@@ -136,6 +136,7 @@ export default function Home() {
   const [error, setError] = useState<string | null>(null);
   const [ayudaAbierta, setAyudaAbierta] = useState(false);
   const [enfocado, setEnfocado] = useState<string | null>(null);
+  const [pregunta, setPregunta] = useState("");
   const [proveedores, setProveedores] = useState<ProveedorWeb[]>([]);
   const [buscandoProveedores, setBuscandoProveedores] = useState(false);
   const { messages, sendMessage, isLoading: chatLoading } = useCopilotChatInternal();
@@ -311,6 +312,20 @@ export default function Home() {
       id: crypto.randomUUID(),
       role: "user",
       content: `${mensaje ? `${PREFIJO_DIAGNOSTICO}${mensaje}` : MENSAJE_SOLO_FOTO}${SUFIJO_BREVEDAD}`,
+    });
+  };
+
+  // En la ventana de ayuda el cliente repregunta sobre lo que ya vio, asi que el
+  // mensaje va tal cual: sin el prefijo que fuerza la accion de diagnostico.
+  const enviarPregunta = async () => {
+    const texto = pregunta.trim();
+    if (!texto) return;
+
+    setPregunta("");
+    await sendMessage({
+      id: crypto.randomUUID(),
+      role: "user",
+      content: `${texto}${SUFIJO_BREVEDAD}`,
     });
   };
 
@@ -573,6 +588,29 @@ export default function Home() {
             vacio="Preguntame lo que quieras sobre el diagnostico o los profesionales."
             sinBorde
           />
+          <form
+            className="mt-2 flex gap-2 border-t border-line pt-3"
+            onSubmit={(evento) => {
+              evento.preventDefault();
+              void enviarPregunta().catch(() => undefined);
+            }}
+          >
+            <input
+              value={pregunta}
+              onChange={(evento) => setPregunta(evento.target.value)}
+              placeholder="Escribi tu pregunta"
+              aria-label="Escribi tu pregunta"
+              autoFocus
+              className="min-w-0 flex-1 border border-line bg-mist/60 px-3 py-2 text-sm outline-none transition focus:border-cobalt"
+            />
+            <button
+              type="submit"
+              disabled={chatLoading || pregunta.trim().length === 0}
+              className="bg-cobalt px-3 py-2 text-sm font-semibold text-paper transition hover:bg-[#152fbf] disabled:cursor-not-allowed disabled:bg-steel"
+            >
+              {chatLoading ? "Pensando…" : "Enviar"}
+            </button>
+          </form>
         </VentanaAyuda>
       ) : null}
     </div>
@@ -610,7 +648,9 @@ function PanelConversacion({
 
   return (
     <section
-      className={`flex h-[32rem] flex-col ${sinBorde ? "" : "border border-line bg-mist/40"}`}
+      className={`flex flex-col ${
+        sinBorde ? "min-h-0 flex-1" : "h-[32rem] border border-line bg-mist/40"
+      }`}
     >
       <div
         className={`hilo flex-1 overflow-y-auto overscroll-contain ${sinBorde ? "px-1" : "p-4"}`}
@@ -749,7 +789,7 @@ function VentanaAyuda({
         role="dialog"
         aria-modal="true"
         aria-label="Ayuda de ServicIA"
-        className="ventana-ayuda flex w-full max-w-md flex-col border border-line bg-paper shadow-[0_18px_48px_-12px_rgba(5,7,13,0.35)]"
+        className="ventana-ayuda flex max-h-[min(36rem,85vh)] w-full max-w-md flex-col border border-line bg-paper shadow-[0_18px_48px_-12px_rgba(5,7,13,0.35)]"
         onClick={(evento) => evento.stopPropagation()}
       >
         <div className="flex items-center justify-between border-b border-line px-4 py-3">
@@ -765,7 +805,7 @@ function VentanaAyuda({
             <IconoCerrar />
           </button>
         </div>
-        <div className="p-3">{children}</div>
+        <div className="flex min-h-0 flex-1 flex-col p-3">{children}</div>
       </div>
     </div>
   );

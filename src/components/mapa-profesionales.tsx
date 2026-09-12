@@ -173,7 +173,9 @@ export function MapaProfesionales({
           </p>
         ) : null}
 
-        <div className="lg:pointer-events-none lg:absolute lg:inset-0 lg:mx-auto lg:max-w-6xl lg:px-8 lg:py-6">
+        {/* Leaflet pinta sus paneles y controles hasta z-index 1000, asi que sin
+            esto el mapa tapa las tarjetas apenas termina de cargar. */}
+        <div className="lg:pointer-events-none lg:absolute lg:inset-0 lg:z-[1100] lg:mx-auto lg:max-w-6xl lg:px-8 lg:py-6">
           <div className="hilo flex gap-3 overflow-x-auto p-4 lg:pointer-events-auto lg:h-full lg:w-80 lg:flex-col lg:overflow-x-visible lg:overflow-y-auto lg:overscroll-contain lg:p-0 lg:pr-1">
             {matches.map((match, indice) => (
               <button

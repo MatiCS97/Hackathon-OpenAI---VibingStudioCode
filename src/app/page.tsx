@@ -548,6 +548,24 @@ function ChatDiagnostico({
   }
 
   const { diagnostico, matches } = resultado;
+
+  // Claude devuelve "Desconocido" (u otra variante) cuando la foto no le alcanza
+  // para identificar el problema. Mostrar la card normal ahi deja "Desconocido,
+  // 0 Gs, 0 h" y cero profesionales, que parece un error en vez de un pedido.
+  if (/desconoc|no identific|indetermin/i.test(diagnostico.categoria)) {
+    return (
+      <section className="my-2 border border-cobalt/30 bg-mist p-3 text-ink">
+        <p className="font-[family-name:var(--font-display)] text-sm font-semibold">
+          No llego a identificar el problema
+        </p>
+        <p className="mt-1 text-sm leading-5 text-steel">
+          Contame en una frase que esta pasando, o suma una foto mas cercana o con
+          mejor luz, y lo diagnostico.
+        </p>
+      </section>
+    );
+  }
+
   return (
     <section className="my-2 border border-line bg-paper p-3 text-ink">
       <div className="flex items-start justify-between gap-3">

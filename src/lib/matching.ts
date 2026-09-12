@@ -1,6 +1,6 @@
 import { readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { VoyageAIClient } from "voyageai";
+import { GoogleGenerativeAIEmbeddings } from "@langchain/google-genai";
 import perfiles from "../../data/profiles.json";
 import { explicarMatch } from "./explicabilidad";
 import type { Diagnostico, MatchProfesional, Profesional } from "./types";
@@ -8,12 +8,21 @@ import type { Diagnostico, MatchProfesional, Profesional } from "./types";
 const EMBEDDINGS_PATH = path.join(process.cwd(), "data", "profile-embeddings.json");
 const MATCH_THRESHOLD = 0.55;
 const TOP_K = 5;
-const BATCH_SIZE = 128;
+const BATCH_SIZE = 100;
 const RADIO_REFERENCIA_KM = 50;
+const GEMINI_MODEL = "gemini-embedding-001";
+const EMBEDDING_DIMENSIONS = 768;
 
 type PerfilEmbedding = {
   id: string;
   embedding: number[];
+};
+
+type CacheEmbeddings = {
+  provider: "gemini";
+  model: typeof GEMINI_MODEL;
+  dimensions: typeof EMBEDDING_DIMENSIONS;
+  embeddings: PerfilEmbedding[];
 };
 
 export type UbicacionCliente = {
@@ -21,7 +30,6 @@ export type UbicacionCliente = {
   lon: number;
 };
 
-const voyage = new VoyageAIClient({ apiKey: process.env.VOYAGE_API_KEY });
 const profesionales = perfiles as Profesional[];
 
 let embeddingsMemo: Promise<PerfilEmbedding[]> | null = null;
@@ -33,11 +41,11 @@ export async function encontrarMatches(
   matches: MatchProfesional[];
   fallback_web: boolean;
 }> {
-  if (!process.env.VOYAGE_API_KEY) {
-    throw new Error("Falta VOYAGE_API_KEY en el entorno.");
+  if (!process.env.GEMINI_API_KEY) {
+    throw new Error("Falta GEMINI_API_KEY en el entorno.");
   }
 
-  const queryEmbedding = await embedTexto(textoDiagnostico(diagnostico), "query");
+  const queryEmbedding = await embedTexto(textoDiagnostico(diagnostico));
   const perfilEmbeddings = await cargarOGenerarEmbeddings();
   const perfilPorId = new Map(profesionales.map((perfil) => [perfil.id, perfil]));
 
@@ -75,36 +83,36 @@ export async function encontrarMatches(
 async function cargarOGenerarEmbeddings(): Promise<PerfilEmbedding[]> {
   embeddingsMemo ??= (async () => {
     const cache = await leerCacheEmbeddings();
-    if (cache?.length === profesionales.length) return cache;
+    if (cache?.length) return cache;
 
     const generados: PerfilEmbedding[] = [];
     for (let index = 0; index < profesionales.length; index += BATCH_SIZE) {
       const batch = profesionales.slice(index, index + BATCH_SIZE);
-      const response = await voyage.embed({
-        input: batch.map(textoPerfil),
-        model: "voyage-3.5",
-        inputType: "document",
-      });
-
-      const embeddings = response.data;
-      if (!embeddings) {
-        throw new Error("Voyage no devolvio embeddings para perfiles.");
+      const embeddings = await obtenerClienteGemini().embedDocuments(batch.map(textoPerfil));
+      if (embeddings.length !== batch.length) {
+        throw new Error("Gemini no devolvio embeddings para todos los perfiles.");
       }
 
-      embeddings.forEach((item, offset) => {
-        if (!item.embedding) {
-          throw new Error("Voyage devolvio un perfil sin embedding.");
+      embeddings.forEach((embedding, offset) => {
+        if (embedding.length < EMBEDDING_DIMENSIONS) {
+          throw new Error("Gemini devolvio un perfil sin embedding.");
         }
 
         generados.push({
           id: batch[offset].id,
-          embedding: item.embedding,
+          embedding: reducirEmbedding(embedding),
         });
       });
     }
 
     try {
-      await writeFile(EMBEDDINGS_PATH, JSON.stringify(generados), "utf8");
+      const cache: CacheEmbeddings = {
+        provider: "gemini",
+        model: GEMINI_MODEL,
+        dimensions: EMBEDDING_DIMENSIONS,
+        embeddings: generados,
+      };
+      await writeFile(EMBEDDINGS_PATH, JSON.stringify(cache), "utf8");
     } catch (error) {
       console.warn("No se pudo guardar la cache de embeddings.", error);
     }
@@ -118,26 +126,38 @@ async function cargarOGenerarEmbeddings(): Promise<PerfilEmbedding[]> {
 async function leerCacheEmbeddings(): Promise<PerfilEmbedding[] | null> {
   try {
     const raw = await readFile(EMBEDDINGS_PATH, "utf8");
-    const parsed = JSON.parse(raw) as PerfilEmbedding[];
-    return Array.isArray(parsed) ? parsed : null;
+    const parsed = JSON.parse(raw) as Partial<CacheEmbeddings>;
+    return parsed.provider === "gemini" &&
+      parsed.model === GEMINI_MODEL &&
+      parsed.dimensions === EMBEDDING_DIMENSIONS &&
+      Array.isArray(parsed.embeddings)
+      ? parsed.embeddings
+      : null;
   } catch {
     return null;
   }
 }
 
-async function embedTexto(texto: string, inputType: "query" | "document") {
-  const response = await voyage.embed({
-    input: texto,
-    model: "voyage-3.5",
-    inputType,
-  });
-
-  const embedding = response.data?.[0]?.embedding;
-  if (!embedding) {
-    throw new Error("Voyage no devolvio embedding.");
+function obtenerClienteGemini() {
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) {
+    throw new Error("Falta GEMINI_API_KEY en el entorno.");
   }
 
-  return embedding;
+  return new GoogleGenerativeAIEmbeddings({ apiKey, modelName: GEMINI_MODEL });
+}
+
+async function embedTexto(texto: string) {
+  const embedding = await obtenerClienteGemini().embedQuery(texto);
+  if (embedding.length < EMBEDDING_DIMENSIONS) {
+    throw new Error("Gemini no devolvio embedding.");
+  }
+
+  return reducirEmbedding(embedding);
+}
+
+function reducirEmbedding(embedding: number[]) {
+  return embedding.slice(0, EMBEDDING_DIMENSIONS);
 }
 
 function scoreFiltrosDuros(profesional: Profesional, diagnostico: Diagnostico) {
@@ -179,7 +199,6 @@ function textoPerfil(profesional: Profesional) {
     normalizarTexto(profesional.rubro),
     profesional.especialidades.map(normalizarTexto).join(", "),
     profesional.certificaciones.map(normalizarTexto).join(", "),
-    normalizarTexto(profesional.bio),
     normalizarTexto(profesional.ubicacion.ciudad),
   ].join(". ");
 }

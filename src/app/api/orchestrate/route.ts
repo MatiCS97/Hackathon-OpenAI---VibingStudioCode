@@ -1,5 +1,5 @@
 import { diagnosticar, estimarConWebSearch } from "@/lib/diagnostico";
-import { encontrarMatches } from "@/lib/matching";
+import { encontrarMatches, type UbicacionCliente } from "@/lib/matching";
 import type { OrquestacionResultado } from "@/lib/types";
 
 export async function POST(request: Request) {
@@ -7,6 +7,7 @@ export async function POST(request: Request) {
     const body = (await request.json()) as {
       texto?: string;
       imagenBase64?: string;
+      ubicacion?: UbicacionCliente;
     };
 
     if (!body.texto?.trim() && !body.imagenBase64) {
@@ -17,7 +18,10 @@ export async function POST(request: Request) {
     }
 
     const diagnosticoInicial = await diagnosticar(body);
-    const resultadoMatching = await encontrarMatches(diagnosticoInicial);
+    const resultadoMatching = await encontrarMatches(
+      diagnosticoInicial,
+      esUbicacionValida(body.ubicacion) ? body.ubicacion : undefined,
+    );
     const diagnostico = resultadoMatching.fallback_web
       ? await estimarConWebSearch(diagnosticoInicial)
       : diagnosticoInicial;
@@ -35,4 +39,13 @@ export async function POST(request: Request) {
 
     return Response.json({ error: message }, { status: 500 });
   }
+}
+
+function esUbicacionValida(ubicacion?: UbicacionCliente): ubicacion is UbicacionCliente {
+  return (
+    typeof ubicacion?.lat === "number" &&
+    Number.isFinite(ubicacion.lat) &&
+    typeof ubicacion.lon === "number" &&
+    Number.isFinite(ubicacion.lon)
+  );
 }

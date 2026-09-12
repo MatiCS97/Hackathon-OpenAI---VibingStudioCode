@@ -3,6 +3,7 @@
 import { useCallback, useMemo, useState } from "react";
 import { CopilotPopup } from "@copilotkit/react-ui";
 import { useCopilotAction, useCopilotReadable } from "@copilotkit/react-core";
+import type { UbicacionCliente } from "@/lib/matching";
 import type { OrquestacionResultado } from "@/lib/types";
 
 type SpeechRecognitionResultLike = {
@@ -36,6 +37,10 @@ export default function Home() {
   const [texto, setTexto] = useState("");
   const [imagenBase64, setImagenBase64] = useState<string | undefined>();
   const [imagenNombre, setImagenNombre] = useState<string | undefined>();
+  const [ubicacion, setUbicacion] = useState<UbicacionCliente | undefined>();
+  const [estadoUbicacion, setEstadoUbicacion] = useState<
+    "pendiente" | "solicitando" | "activa" | "no_disponible"
+  >("pendiente");
   const [resultado, setResultado] = useState<OrquestacionResultado | null>(null);
   const [loading, setLoading] = useState(false);
   const [escuchando, setEscuchando] = useState(false);
@@ -57,7 +62,7 @@ export default function Home() {
   });
 
   const ejecutarDiagnostico = useCallback(
-    async (textoManual?: string) => {
+    async (textoManual?: string, ubicacionParaMatching = ubicacion) => {
       const textoFinal = textoManual ?? texto;
       setLoading(true);
       setError(null);
@@ -66,7 +71,7 @@ export default function Home() {
         const response = await fetch("/api/orchestrate", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ texto: textoFinal, imagenBase64 }),
+          body: JSON.stringify({ texto: textoFinal, imagenBase64, ubicacion: ubicacionParaMatching }),
         });
 
         const payload = (await response.json()) as unknown;
@@ -92,8 +97,45 @@ export default function Home() {
         setLoading(false);
       }
     },
-    [imagenBase64, texto],
+    [imagenBase64, texto, ubicacion],
   );
+
+  const solicitarUbicacion = () =>
+    new Promise<UbicacionCliente | undefined>((resolve) => {
+      if (ubicacion) {
+        resolve(ubicacion);
+        return;
+      }
+
+      if (!navigator.geolocation) {
+        setEstadoUbicacion("no_disponible");
+        resolve(undefined);
+        return;
+      }
+
+      setEstadoUbicacion("solicitando");
+      navigator.geolocation.getCurrentPosition(
+        (position) => {
+          const ubicacionActual = {
+            lat: position.coords.latitude,
+            lon: position.coords.longitude,
+          };
+          setUbicacion(ubicacionActual);
+          setEstadoUbicacion("activa");
+          resolve(ubicacionActual);
+        },
+        () => {
+          setEstadoUbicacion("no_disponible");
+          resolve(undefined);
+        },
+        { enableHighAccuracy: false, timeout: 10_000, maximumAge: 300_000 },
+      );
+    });
+
+  const diagnosticarConUbicacion = async () => {
+    const ubicacionActual = await solicitarUbicacion();
+    return ejecutarDiagnostico(undefined, ubicacionActual);
+  };
 
   useCopilotAction(
     {
@@ -221,13 +263,23 @@ export default function Home() {
                 </button>
                 <button
                   type="button"
-                  onClick={() => ejecutarDiagnostico()}
-                  disabled={loading}
+                  onClick={() => void diagnosticarConUbicacion().catch(() => undefined)}
+                  disabled={loading || estadoUbicacion === "solicitando"}
                   className="bg-[#1f5b4f] px-3 py-2 text-sm font-semibold text-white transition hover:bg-[#17463d] disabled:cursor-not-allowed disabled:bg-[#91aaa3]"
                 >
                   {loading ? "Procesando" : "Diagnosticar"}
                 </button>
               </div>
+
+              <p className="mt-3 text-sm text-[#625b52]">
+                {estadoUbicacion === "activa"
+                  ? "Ubicacion actual activa para ordenar profesionales cercanos."
+                  : estadoUbicacion === "solicitando"
+                    ? "Solicitando ubicacion actual..."
+                    : estadoUbicacion === "no_disponible"
+                      ? "Se continuara sin ubicacion."
+                      : "Al diagnosticar se pedira permiso para usar tu ubicacion actual."}
+              </p>
 
               {imagenNombre ? (
                 <div className="mt-3 flex items-center gap-3 border border-[#ded7cb] bg-[#fbfaf7] p-2">

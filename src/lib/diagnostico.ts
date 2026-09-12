@@ -72,7 +72,6 @@ export async function diagnosticar(input: DiagnosticarInput): Promise<Diagnostic
   const message = await anthropic.messages.create({
     model: "claude-sonnet-5",
     max_tokens: 900,
-    temperature: 0,
     system:
       "Sos un agente de diagnostico para un marketplace de servicios en Paraguay. Responde usando exclusivamente la tool registrar_diagnostico con el contrato exacto. Estima costos en guaranies paraguayos.",
     messages: [{ role: "user", content }],
@@ -106,7 +105,6 @@ export async function estimarConWebSearch(diagnostico: Diagnostico): Promise<Dia
   const message = await anthropic.messages.create({
     model: "claude-sonnet-5",
     max_tokens: 900,
-    temperature: 0,
     system:
       "Actualiza solamente costo_estimado_min, costo_estimado_max y horas_estimadas usando busqueda web cuando haga falta. Responde con la tool registrar_diagnostico.",
     messages: [

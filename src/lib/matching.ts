@@ -9,10 +9,16 @@ const EMBEDDINGS_PATH = path.join(process.cwd(), "data", "profile-embeddings.jso
 const MATCH_THRESHOLD = 0.55;
 const TOP_K = 5;
 const BATCH_SIZE = 128;
+const RADIO_REFERENCIA_KM = 50;
 
 type PerfilEmbedding = {
   id: string;
   embedding: number[];
+};
+
+export type UbicacionCliente = {
+  lat: number;
+  lon: number;
 };
 
 const voyage = new VoyageAIClient({ apiKey: process.env.VOYAGE_API_KEY });
@@ -20,7 +26,10 @@ const profesionales = perfiles as Profesional[];
 
 let embeddingsMemo: Promise<PerfilEmbedding[]> | null = null;
 
-export async function encontrarMatches(diagnostico: Diagnostico): Promise<{
+export async function encontrarMatches(
+  diagnostico: Diagnostico,
+  ubicacionCliente?: UbicacionCliente,
+): Promise<{
   matches: MatchProfesional[];
   fallback_web: boolean;
 }> {
@@ -40,7 +49,10 @@ export async function encontrarMatches(diagnostico: Diagnostico): Promise<{
       const hardScore = scoreFiltrosDuros(profesional, diagnostico);
       if (hardScore === 0) return null;
 
-      const score = cosineSimilarity(queryEmbedding, item.embedding) * hardScore;
+      const scoreUbicacion = ubicacionCliente
+        ? factorUbicacion(profesional, ubicacionCliente)
+        : 1;
+      const score = cosineSimilarity(queryEmbedding, item.embedding) * hardScore * scoreUbicacion;
       return { profesional, score };
     })
     .filter((item): item is { profesional: Profesional; score: number } => item !== null)
@@ -177,6 +189,34 @@ function normalizarTexto(texto: string) {
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "")
     .toLocaleLowerCase("es");
+}
+
+function factorUbicacion(profesional: Profesional, cliente: UbicacionCliente) {
+  const distancia = distanciaEnKm(
+    cliente.lat,
+    cliente.lon,
+    profesional.ubicacion.lat,
+    profesional.ubicacion.lon,
+  );
+
+  return Math.max(0.7, 1 - (distancia / RADIO_REFERENCIA_KM) * 0.3);
+}
+
+function distanciaEnKm(latitudA: number, longitudA: number, latitudB: number, longitudB: number) {
+  const radioTierraKm = 6371;
+  const aLatitud = gradosARadianes(latitudB - latitudA);
+  const aLongitud = gradosARadianes(longitudB - longitudA);
+  const formulaHaversine =
+    Math.sin(aLatitud / 2) ** 2 +
+    Math.cos(gradosARadianes(latitudA)) *
+      Math.cos(gradosARadianes(latitudB)) *
+      Math.sin(aLongitud / 2) ** 2;
+
+  return radioTierraKm * 2 * Math.atan2(Math.sqrt(formulaHaversine), Math.sqrt(1 - formulaHaversine));
+}
+
+function gradosARadianes(grados: number) {
+  return (grados * Math.PI) / 180;
 }
 
 function cosineSimilarity(a: number[], b: number[]) {

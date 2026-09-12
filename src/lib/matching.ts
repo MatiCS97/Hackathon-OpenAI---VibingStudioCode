@@ -163,13 +163,21 @@ function scoreFiltrosDuros(profesional: Profesional, diagnostico: Diagnostico) {
     return subEspecialidad.includes(normalizada) || normalizada.includes(subEspecialidad);
   });
 
+  // Bidireccional como el chequeo de especialidad: Claude pide "Certificacion de
+  // gasista matriculado" y el perfil declara "Gasista matriculado", asi que mirar
+  // solo si el perfil contiene lo pedido descartaba a los 2471 gasistas del dataset.
   const certificacionCompatible =
     diagnostico.certificaciones_requeridas.length === 0 ||
-    diagnostico.certificaciones_requeridas.some((requerida) =>
-      profesional.certificaciones.some((certificacion) =>
-        normalizarTexto(certificacion).includes(normalizarTexto(requerida)),
-      ),
-    );
+    diagnostico.certificaciones_requeridas.some((requerida) => {
+      const normalizadaRequerida = normalizarTexto(requerida);
+      return profesional.certificaciones.some((certificacion) => {
+        const normalizada = normalizarTexto(certificacion);
+        return (
+          normalizada.includes(normalizadaRequerida) ||
+          normalizadaRequerida.includes(normalizada)
+        );
+      });
+    });
 
   if (!rubroCompatible && !especialidadCompatible) return 0;
   if (!certificacionCompatible && diagnostico.urgencia === "alta") return 0;

@@ -97,6 +97,24 @@ disponible`.
 }
 ```
 
+### JSON de respuesta completa del endpoint `/api/orchestrate`
+
+```json
+{
+  "diagnostico": { "...": "JSON de diagnóstico de arriba" },
+  "matches": [{ "...": "JSON de match de arriba, más el perfil completo en `profesional`" }],
+  "fallback_web": false,
+  "fuentes_web": [
+    { "titulo": "Título de la página encontrada", "url": "https://..." }
+  ]
+}
+```
+
+`fuentes_web` se llena SOLO cuando el fallback de `web_search` realmente devolvió
+resultados (y ahí `diagnostico.fuente_estimacion` pasa a `"web_search"`). Si el
+matching local alcanzó, viene como array vacío. Es lo que permite citar la fuente
+en la UI cuando el costo no salió de la base local.
+
 Si estos formatos cambian al discutirlo en equipo, ACTUALIZAR este archivo antes de
 programar — es el contrato entre módulos.
 

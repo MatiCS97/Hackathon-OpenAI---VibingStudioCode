@@ -182,8 +182,8 @@ export default function Home() {
 
   const enviarMensaje = async () => {
     const mensaje = texto.trim();
-    if (!mensaje) {
-      setError("Describe el problema para poder diagnosticarlo.");
+    if (!mensaje && !imagenBase64) {
+      setError("Describe el problema o subi una foto.");
       return;
     }
 
@@ -192,7 +192,9 @@ export default function Home() {
     await sendMessage({
       id: crypto.randomUUID(),
       role: "user",
-      content: `Usa la accion diagnosticarProblema para diagnosticar este problema: ${mensaje}`,
+      content: mensaje
+        ? `Usa la accion diagnosticarProblema para diagnosticar este problema: ${mensaje}`
+        : "Usa la accion diagnosticarProblema con texto 'Diagnostica el problema de la foto adjunta'. El cliente subio una foto y no escribio descripcion.",
     });
   };
 

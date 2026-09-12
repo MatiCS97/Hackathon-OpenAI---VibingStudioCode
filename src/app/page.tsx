@@ -1,12 +1,14 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { ReactNode } from "react";
 import {
   useCopilotAction,
   useCopilotAdditionalInstructions,
   useCopilotChatInternal,
   useCopilotReadable,
 } from "@copilotkit/react-core";
+import { MapaProfesionales } from "@/components/mapa-profesionales";
 import type { UbicacionCliente } from "@/lib/matching";
 import { diagnosticoSinIdentificar } from "@/lib/types";
 import type { OrquestacionResultado } from "@/lib/types";
@@ -123,7 +125,12 @@ export default function Home() {
   const [loading, setLoading] = useState(false);
   const [escuchando, setEscuchando] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [ayudaAbierta, setAyudaAbierta] = useState(false);
+  const [enfocado, setEnfocado] = useState<string | null>(null);
   const { messages, sendMessage, isLoading: chatLoading } = useCopilotChatInternal();
+
+  const matches = resultado?.matches ?? [];
+  const hayProfesionales = matches.length > 0;
 
   const micRingsRef = useRef<HTMLSpanElement>(null);
   const micAnimRef = useRef<AnimeInstance | null>(null);
@@ -474,41 +481,66 @@ export default function Home() {
               ) : null}
             </div>
 
-            <div className="grid gap-3 sm:grid-cols-2">
-              <QuickPrompt
-                title="Emergencia hogar"
-                text="Hay una pérdida de agua fuerte debajo del lavatorio del baño y no puedo cerrar la llave."
-                onPick={setTexto}
-              />
-              <QuickPrompt
-                title="Riesgo eléctrico"
-                text="El tablero eléctrico hace chispas cuando prendo el aire acondicionado."
-                onPick={setTexto}
-              />
-            </div>
           </div>
 
-          <Conversacion
-            mensajes={messages}
-            resultado={resultado}
-            cargando={loading || chatLoading}
-          />
+          {/* Con profesionales en pantalla el chat estorba: queda detras del boton
+              de ayuda. Sin resultados es lo unico que puede desbloquear al cliente,
+              asi que ocupa el lugar principal. */}
+          {hayProfesionales && resultado ? (
+            <ResumenDiagnostico
+              resultado={resultado}
+              onPedirAyuda={() => setAyudaAbierta(true)}
+            />
+          ) : (
+            <PanelConversacion
+              mensajes={messages}
+              cargando={loading || chatLoading}
+              vacio={
+                resultado
+                  ? "No encontre profesionales para este caso. Contame un poco mas y sigo buscando."
+                  : "Contanos el problema y ServicIA encuentra a quien puede resolverlo."
+              }
+            />
+          )}
         </section>
       </main>
 
+      {hayProfesionales && resultado ? (
+        <MapaProfesionales
+          matches={matches}
+          cliente={ubicacion}
+          enfocado={enfocado}
+          onEnfocar={setEnfocado}
+        />
+      ) : null}
+
+      {ayudaAbierta ? (
+        <VentanaAyuda onCerrar={() => setAyudaAbierta(false)}>
+          <PanelConversacion
+            mensajes={messages}
+            cargando={loading || chatLoading}
+            vacio="Preguntame lo que quieras sobre el diagnostico o los profesionales."
+            sinBorde
+          />
+        </VentanaAyuda>
+      ) : null}
     </div>
   );
 }
 
-function Conversacion({
+function PanelConversacion({
   mensajes,
-  resultado,
   cargando,
+  vacio,
+  sinBorde = false,
 }: {
   mensajes: Array<{ id: string; role: string; content?: unknown }>;
-  resultado: OrquestacionResultado | null;
   cargando: boolean;
+  vacio: string;
+  sinBorde?: boolean;
 }) {
+  const finRef = useRef<HTMLDivElement>(null);
+
   // El resultado de la accion tambien llega como mensaje con contenido string, y
   // sin filtrarlo el JSON entero se imprimia arriba de la card que ya lo muestra.
   const mensajesDeTexto = mensajes.filter((mensaje) => {
@@ -521,61 +553,170 @@ function Conversacion({
     return !(contenido.startsWith("{") && contenido.includes('"diagnostico"'));
   });
 
+  useEffect(() => {
+    finRef.current?.scrollIntoView({ block: "end", behavior: "smooth" });
+  }, [mensajesDeTexto.length, cargando]);
+
   return (
-    <section className="flex min-h-[32rem] flex-col border border-line bg-mist/40 p-4">
-      <div className="border-b border-line pb-3">
-        <p className="font-[family-name:var(--font-mono)] text-xs uppercase text-cobalt">
-          Conversacion
-        </p>
-        <h2 className="mt-1 font-[family-name:var(--font-display)] text-lg font-semibold">
-          Diagnostico en curso
-        </h2>
-      </div>
+    <section
+      className={`flex h-[32rem] flex-col ${sinBorde ? "" : "border border-line bg-mist/40"}`}
+    >
+      <div
+        className={`hilo flex-1 overflow-y-auto overscroll-contain ${sinBorde ? "px-1" : "p-4"}`}
+      >
+        <div className="flex min-h-full flex-col gap-3">
+          {mensajesDeTexto.length === 0 && !cargando ? (
+            <p className="m-auto max-w-64 text-center text-sm leading-6 text-steel">
+              {vacio}
+            </p>
+          ) : null}
 
-      <div className="flex flex-1 flex-col gap-3 py-4">
-        {mensajesDeTexto.map((mensaje) => (
-          <div
-            key={mensaje.id}
-            className={
-              mensaje.role === "user"
-                ? "max-w-[85%] self-end bg-ink px-3 py-2 text-sm leading-6 text-paper"
-                : "max-w-[92%] self-start border border-line bg-paper px-3 py-2 text-sm leading-6 text-ink"
-            }
-          >
-            <TextoChat contenido={textoVisible(mensaje.content as string)} />
-          </div>
-        ))}
+          {mensajesDeTexto.map((mensaje) => (
+            <div
+              key={mensaje.id}
+              className={
+                mensaje.role === "user"
+                  ? "max-w-[85%] self-end bg-ink px-3 py-2 text-sm leading-6 text-paper"
+                  : "max-w-[92%] self-start border border-line bg-paper px-3 py-2 text-sm leading-6 text-ink"
+              }
+            >
+              <TextoChat contenido={textoVisible(mensaje.content as string)} />
+            </div>
+          ))}
 
-        {cargando ? <ChatDiagnostico status="executing" /> : null}
-        {resultado ? <ChatDiagnostico status="complete" resultado={resultado} /> : null}
-        {!cargando && !resultado && mensajesDeTexto.length === 0 ? (
-          <p className="m-auto max-w-56 text-center text-sm leading-6 text-steel">
-            Describe lo que paso y ServicIA va a encontrar a quien puede resolverlo.
-          </p>
-        ) : null}
+          {cargando ? <ChatDiagnostico status="executing" /> : null}
+          <div ref={finRef} />
+        </div>
       </div>
     </section>
   );
 }
 
-function QuickPrompt({
-  title,
-  text,
-  onPick,
+function ResumenDiagnostico({
+  resultado,
+  onPedirAyuda,
 }: {
-  title: string;
-  text: string;
-  onPick: (value: string) => void;
+  resultado: OrquestacionResultado;
+  onPedirAyuda: () => void;
 }) {
+  const { diagnostico, matches, fallback_web, fuentes_web } = resultado;
+
   return (
-    <button
-      type="button"
-      onClick={() => onPick(text)}
-      className="border border-line bg-paper p-3 text-left transition hover:border-cobalt"
+    <section className="flex flex-col border border-line bg-paper">
+      <div className="border-b border-line p-5">
+        <h2 className="font-[family-name:var(--font-display)] text-2xl font-semibold leading-tight">
+          {diagnostico.categoria}
+        </h2>
+        <p className="mt-1 text-sm leading-6 text-steel">
+          {diagnostico.sub_especialidad}
+        </p>
+      </div>
+
+      <dl className="grid grid-cols-2 gap-px border-b border-line bg-line">
+        <Dato etiqueta="Costo estimado">
+          {formatMoney(diagnostico.costo_estimado_min)} –{" "}
+          {formatMoney(diagnostico.costo_estimado_max)}
+        </Dato>
+        <Dato etiqueta="Tiempo">{diagnostico.horas_estimadas} h</Dato>
+        <Dato etiqueta="Urgencia">{diagnostico.urgencia}</Dato>
+        <Dato etiqueta="Profesionales">{matches.length}</Dato>
+      </dl>
+
+      {fallback_web && fuentes_web.length > 0 ? (
+        <div className="border-b border-line p-4">
+          <p className="text-sm text-steel">
+            El costo sale de precios publicados esta semana:
+          </p>
+          <ul className="mt-2 flex flex-col gap-1">
+            {fuentes_web.slice(0, 3).map((fuente) => (
+              <li key={fuente.url}>
+                <a
+                  href={fuente.url}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="text-sm leading-5 text-cobalt underline decoration-cobalt/30 underline-offset-4 transition hover:decoration-cobalt"
+                >
+                  {fuente.titulo}
+                </a>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+
+      <button
+        type="button"
+        onClick={onPedirAyuda}
+        className="flex items-center justify-center gap-2 p-4 text-sm font-semibold text-cobalt transition hover:bg-mist"
+      >
+        <IconoAyuda />
+        Preguntarle a ServicIA
+      </button>
+    </section>
+  );
+}
+
+function Dato({ etiqueta, children }: { etiqueta: string; children: ReactNode }) {
+  return (
+    <div className="bg-paper p-4">
+      <dt className="text-xs text-steel">{etiqueta}</dt>
+      <dd className="mt-1 font-[family-name:var(--font-mono)] text-sm text-ink">
+        {children}
+      </dd>
+    </div>
+  );
+}
+
+function VentanaAyuda({
+  children,
+  onCerrar,
+}: {
+  children: ReactNode;
+  onCerrar: () => void;
+}) {
+  useEffect(() => {
+    const previo = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+
+    const alTeclear = (evento: KeyboardEvent) => {
+      if (evento.key === "Escape") onCerrar();
+    };
+    window.addEventListener("keydown", alTeclear);
+
+    return () => {
+      document.body.style.overflow = previo;
+      window.removeEventListener("keydown", alTeclear);
+    };
+  }, [onCerrar]);
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-end justify-end bg-ink/40 p-4 sm:p-6"
+      onClick={onCerrar}
     >
-      <div className="text-sm font-medium text-ink">{title}</div>
-      <div className="mt-1 text-sm leading-5 text-steel">{text}</div>
-    </button>
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-label="Ayuda de ServicIA"
+        className="ventana-ayuda flex w-full max-w-md flex-col border border-line bg-paper shadow-[0_18px_48px_-12px_rgba(5,7,13,0.35)]"
+        onClick={(evento) => evento.stopPropagation()}
+      >
+        <div className="flex items-center justify-between border-b border-line px-4 py-3">
+          <h2 className="font-[family-name:var(--font-display)] text-base font-semibold">
+            Ayuda de ServicIA
+          </h2>
+          <button
+            type="button"
+            onClick={onCerrar}
+            aria-label="Cerrar la ayuda"
+            className="p-1 text-steel transition hover:text-ink"
+          >
+            <IconoCerrar />
+          </button>
+        </div>
+        <div className="p-3">{children}</div>
+      </div>
+    </div>
   );
 }
 
@@ -644,10 +785,7 @@ function ChatDiagnostico({
     <section className="my-2 border border-line bg-paper p-3 text-ink">
       <div className="flex items-start justify-between gap-3">
         <div>
-          <p className="font-[family-name:var(--font-mono)] text-[11px] uppercase text-cobalt">
-            Diagnostico listo
-          </p>
-          <h3 className="mt-1 font-[family-name:var(--font-display)] text-base font-semibold">
+          <h3 className="font-[family-name:var(--font-display)] text-base font-semibold">
             {diagnostico.categoria}
           </h3>
           <p className="text-sm text-steel">{diagnostico.sub_especialidad}</p>
@@ -669,9 +807,7 @@ function ChatDiagnostico({
       </div>
 
       <div className="mt-3 border-t border-line pt-3">
-        <p className="font-[family-name:var(--font-mono)] text-[11px] uppercase text-steel">
-          Profesionales recomendados
-        </p>
+        <p className="text-sm text-steel">Profesionales recomendados</p>
         <div className="mt-2 flex flex-col gap-2">
           {matches.slice(0, 3).map((match) => (
             <article key={match.profesional_id} className="border-l-2 border-cobalt pl-2">
@@ -735,4 +871,26 @@ function formatMoney(value: number) {
     currency: "PYG",
     maximumFractionDigits: 0,
   }).format(value);
+}
+
+function IconoAyuda() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+      <path
+        d="M8 1.5 9.4 5.6 13.5 7 9.4 8.4 8 12.5 6.6 8.4 2.5 7 6.6 5.6 8 1.5Z"
+        stroke="currentColor"
+        strokeWidth="1.2"
+        strokeLinejoin="round"
+      />
+      <path d="M12.6 11.4v3M11.1 12.9h3" stroke="currentColor" strokeWidth="1.2" />
+    </svg>
+  );
+}
+
+function IconoCerrar() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+      <path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" strokeWidth="1.4" />
+    </svg>
+  );
 }

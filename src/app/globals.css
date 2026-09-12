@@ -50,8 +50,84 @@ body {
   animation: sonar-ping 2.8s cubic-bezier(0.2, 0.6, 0.4, 1) infinite;
 }
 
+/* Las superficies que no dibujamos tambien son parte del diseño. */
+::selection {
+  background: color-mix(in srgb, var(--cobalt) 22%, transparent);
+  color: var(--ink);
+}
+
+:focus-visible {
+  outline: 2px solid var(--cobalt);
+  outline-offset: 2px;
+}
+
+.hilo {
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--steel) 45%, transparent) transparent;
+}
+
+.hilo::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+.hilo::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--steel) 45%, transparent);
+}
+
+.hilo::-webkit-scrollbar-thumb:hover {
+  background: var(--steel);
+}
+
+.hilo::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* Marcadores del mapa: mismo numero que la tarjeta, mismo azul. */
+.marcador {
+  display: flex;
+  height: 28px;
+  width: 28px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  background: var(--cobalt);
+  color: var(--paper);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  box-shadow: 0 4px 10px -2px rgba(5, 7, 13, 0.45);
+}
+
+.marcador-cliente {
+  height: 18px;
+  width: 18px;
+  background: var(--signal);
+  border: 3px solid var(--ink);
+  box-shadow: none;
+}
+
+.leaflet-container {
+  font-family: var(--font-body);
+}
+
+@keyframes ventana-entra {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.ventana-ayuda {
+  animation: ventana-entra 0.32s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
 @media (prefers-reduced-motion: reduce) {
-  .sonar-ring {
+  .sonar-ring,
+  .ventana-ayuda {
     animation: none;
   }
 }

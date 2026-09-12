@@ -29,6 +29,9 @@ type SpeechRecognitionLike = {
 
 type SpeechRecognitionConstructor = new () => SpeechRecognitionLike;
 
+const TIPOS_IMAGEN_ADMITIDOS = ["image/jpeg", "image/png", "image/webp", "image/gif"];
+const TAMANO_MAXIMO_IMAGEN = 5 * 1024 * 1024;
+
 export default function Home() {
   const [texto, setTexto] = useState("");
   const [imagenBase64, setImagenBase64] = useState<string | undefined>();
@@ -113,9 +116,25 @@ export default function Home() {
 
   const cargarImagen = async (file?: File) => {
     if (!file) return;
-    const dataUrl = await fileToDataUrl(file);
-    setImagenBase64(dataUrl);
-    setImagenNombre(file.name);
+
+    if (!TIPOS_IMAGEN_ADMITIDOS.includes(file.type)) {
+      setError("Usa una imagen PNG, JPG, WebP o GIF. Las fotos HEIC no son compatibles.");
+      return;
+    }
+
+    if (file.size > TAMANO_MAXIMO_IMAGEN) {
+      setError("La imagen debe pesar menos de 5 MB.");
+      return;
+    }
+
+    try {
+      const dataUrl = await fileToDataUrl(file);
+      setImagenBase64(dataUrl);
+      setImagenNombre(file.name);
+      setError(null);
+    } catch {
+      setError("No se pudo leer la imagen. Intenta seleccionarla otra vez.");
+    }
   };
 
   const iniciarVoz = () => {
@@ -188,7 +207,7 @@ export default function Home() {
                   Foto
                   <input
                     type="file"
-                    accept="image/*"
+                    accept="image/jpeg,image/png,image/webp,image/gif"
                     className="sr-only"
                     onChange={(event) => cargarImagen(event.target.files?.[0])}
                   />
@@ -211,9 +230,28 @@ export default function Home() {
               </div>
 
               {imagenNombre ? (
-                <p className="mt-3 text-sm text-[#625b52]">
-                  Imagen adjunta: {imagenNombre}
-                </p>
+                <div className="mt-3 flex items-center gap-3 border border-[#ded7cb] bg-[#fbfaf7] p-2">
+                  {imagenBase64 ? (
+                    <img
+                      src={imagenBase64}
+                      alt="Vista previa de la foto adjunta"
+                      className="h-14 w-14 object-cover"
+                    />
+                  ) : null}
+                  <p className="min-w-0 flex-1 truncate text-sm text-[#625b52]">
+                    Imagen adjunta: {imagenNombre}
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setImagenBase64(undefined);
+                      setImagenNombre(undefined);
+                    }}
+                    className="border border-[#71533f] px-2 py-1 text-sm font-semibold text-[#71533f] transition hover:bg-[#efe5dc]"
+                  >
+                    Quitar
+                  </button>
+                </div>
               ) : null}
               {error ? (
                 <p className="mt-3 border border-[#d39a8d] bg-[#fff3f0] px-3 py-2 text-sm text-[#8b2f21]">

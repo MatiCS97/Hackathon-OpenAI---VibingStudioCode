@@ -99,6 +99,36 @@ va a haber conflicto/duplicación casi seguro en `src/lib/matching.ts` y
    necesitar hacer alguien manualmente (probablemente Matias) comparando ambas
    ramas — avisar acá cuando esté pusheado para que se audite el merge.
 
+## Límite de Voyage API — acción concreta requerida
+
+Fecha: 2026-09-12
+
+Tier gratis de Voyage: **3 requests/minuto, 10k tokens/minuto**. Cuenta:
+
+- 20000 perfiles ÷ batch de 128 = 157 requests necesarios para generar todos los
+  embeddings de `data/profiles.json`.
+- 157 requests ÷ 3 rpm ≈ **52 minutos** solo para la generación inicial. El cuello
+  de botella es el límite de requests/minuto, no el de tokens.
+- Esto SOLO afecta la generación inicial (una vez). Cada diagnóstico nuevo en vivo
+  usa 1 solo embedding (el del texto del cliente) → no choca con el límite.
+
+**Elegir UNA de estas dos, ahora, antes de seguir con otras features:**
+
+1. **Recortar el dataset de demo** a ~1500-2000 perfiles (en vez de 20000). Con eso:
+   2000 ÷ 128 ≈ 16 requests ÷ 3 rpm ≈ 6 minutos de generación, mucho más manejable
+   dado el tiempo que queda del evento. Es más que suficiente para la demo — nadie
+   va a notar la diferencia entre 2000 y 20000 perfiles en un video de 2 minutos.
+   - Si se hace esto, avisar en el chat del equipo porque afecta `data/profiles.json`
+     que todos comparten (regla de convivencia git en `CLAUDE.md`).
+
+2. Si se prefiere mantener los 20000, correr la generación de embeddings **ahora
+   mismo, en background**, mientras se sigue trabajando en otra cosa (UI, demo host
+   app), y commitear `data/profile-embeddings.json` cuando termine (los ~52 min).
+   No hacerlo en vivo durante la demo bajo ningún concepto.
+
+Recomendación: opción 1 (recortar dataset), es más rápido y elimina el riesgo por
+completo en vez de solo mitigarlo.
+
 ## Siguiente auditoría
 
 Voy a releer el repo después del próximo commit de Codex y actualizar este archivo con una Ronda 3.

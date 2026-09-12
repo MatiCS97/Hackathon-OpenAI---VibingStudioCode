@@ -7,7 +7,7 @@ import {
 import Anthropic from "@anthropic-ai/sdk";
 import OpenAI from "openai";
 import { NextRequest } from "next/server";
-import { configuracionDelServidor } from "@/lib/ia-config";
+import { configuracionDelServidor, normalizarModoIA } from "@/lib/ia-config";
 
 const runtime = new CopilotRuntime();
 
@@ -30,11 +30,18 @@ function armarServiceAdapter(req: NextRequest) {
 
   // Sin key del visitante, el deploy usa la suya. Si esta configurado con
   // IA_PROVEEDOR=openai, todo el sitio corre sobre esa cuenta.
-  const porDefecto = configuracionDelServidor();
-  if (porDefecto) {
+  const porDefecto = configuracionDelServidor(normalizarModoIA(req.headers.get("x-servicia-modo")));
+  if (porDefecto?.proveedor === "openai") {
     return new OpenAIAdapter({
       openai: new OpenAI({ apiKey: porDefecto.apiKey }),
       model: porDefecto.modelo,
+    });
+  }
+
+  if (porDefecto?.proveedor === "anthropic") {
+    return new AnthropicAdapter({
+      anthropic: new Anthropic({ apiKey: porDefecto.apiKey, maxRetries: 0 }),
+      model: "claude-haiku-4-5",
     });
   }
 

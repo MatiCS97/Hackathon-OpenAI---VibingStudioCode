@@ -1,6 +1,27 @@
 import OpenAI from "openai";
 import { diagnosticoSinIdentificar } from "./types";
 import type { Diagnostico, FuenteWeb, ProveedorWeb } from "./types";
+import type { ModoIA } from "./ia-config";
+
+function opcionesGeneracion(modelo: string, limite: number) {
+  const esfuerzo = /^(gpt-5-nano|gpt-5-mini|gpt-5)(-|$)/.test(modelo)
+    ? "minimal"
+    : /^gpt-5\.[124]/.test(modelo) ? "none" : undefined;
+  return {
+    max_output_tokens: esfuerzo === "minimal" ? Math.max(limite, 2048) : limite,
+    // El SDK instalado precede a estos valores, admitidos por la API actual.
+    ...(esfuerzo ? { reasoning: { effort: esfuerzo } as unknown as OpenAI.Responses.ResponseCreateParamsNonStreaming["reasoning"] } : {}),
+    store: false,
+  };
+}
+
+function clienteOpenAI(apiKey: string) {
+  return new OpenAI({ apiKey, maxRetries: 0, timeout: 30_000 });
+}
+
+function modeloWeb(modelo: string) {
+  return modelo === "gpt-5-nano" ? "gpt-4o-mini" : modelo;
+}
 
 // Espejo de diagnostico.ts pero para visitantes que traen su propia key de
 // OpenAI. La Responses API resuelve lo mismo que el tool-use de Anthropic con
@@ -65,8 +86,10 @@ export async function diagnosticarOpenAI(
   input: DiagnosticarInputOpenAI,
   apiKey: string,
   modelo: string,
+  modo: ModoIA = "economico",
+  signal?: AbortSignal,
 ): Promise<Diagnostico> {
-  const client = new OpenAI({ apiKey });
+  const client = clienteOpenAI(apiKey);
   const imagenDataUrl = aDataUrl(input.imagenBase64);
 
   const diagnostico = await estructurarDiagnostico(
@@ -75,20 +98,22 @@ export async function diagnosticarOpenAI(
     input.texto?.trim() ||
       "Diagnostica el problema observado en la imagen y estima costo/tiempo.",
     imagenDataUrl,
+    signal,
   );
 
   // Misma logica que con Claude: el schema empuja al modelo a escaparse con un
   // "no se" antes que arriesgar una categoria en una foto dificil.
-  if (!imagenDataUrl || !diagnosticoSinIdentificar(diagnostico)) return diagnostico;
+  if (modo === "economico" || !imagenDataUrl || !diagnosticoSinIdentificar(diagnostico)) return diagnostico;
 
-  const descripcion = await describirImagen(client, modelo, imagenDataUrl);
+  const descripcion = await describirImagen(client, modelo, imagenDataUrl, signal);
   if (!descripcion) return diagnostico;
 
   const segundoIntento = await estructurarDiagnostico(
     client,
     modelo,
     `Un tecnico mira la foto del cliente y describe: ${descripcion}. A partir de eso diagnostica el problema y estima costo/tiempo.`,
-    imagenDataUrl,
+    null,
+    signal,
   );
 
   return diagnosticoSinIdentificar(segundoIntento) ? diagnostico : segundoIntento;
@@ -99,6 +124,7 @@ async function estructurarDiagnostico(
   modelo: string,
   texto: string,
   imagenDataUrl: string | null,
+  signal?: AbortSignal,
 ): Promise<Diagnostico> {
   const contenido: OpenAI.Responses.ResponseInputMessageContentList = [
     { type: "input_text", text: texto },
@@ -110,7 +136,7 @@ async function estructurarDiagnostico(
 
   const respuesta = await client.responses.create({
     model: modelo,
-    max_output_tokens: 900,
+    ...opcionesGeneracion(modelo, 700),
     input: [
       {
         role: "system",
@@ -127,17 +153,27 @@ async function estructurarDiagnostico(
         strict: true,
       },
     },
+  }, { signal });
+
+  console.info("[IA diagnostico]", {
+    proveedor: "openai", modelo,
+    input_tokens: respuesta.usage?.input_tokens,
+    output_tokens: respuesta.usage?.output_tokens,
   });
+
+  if (respuesta.status === "incomplete") {
+    throw new Error("El modelo alcanzo el limite de respuesta. Proba un modelo sin razonamiento como GPT-4o mini.");
+  }
 
   return validarDiagnostico(parsearJson(respuesta.output_text));
 }
 
 // Describir no exige el modelo elegido para el diagnostico principal; esto solo
 // corre cuando la primera clasificacion ya fallo.
-async function describirImagen(client: OpenAI, modelo: string, imagenDataUrl: string) {
+async function describirImagen(client: OpenAI, modelo: string, imagenDataUrl: string, signal?: AbortSignal) {
   const respuesta = await client.responses.create({
     model: modelo,
-    max_output_tokens: 400,
+    ...opcionesGeneracion(modelo, 400),
     input: [
       {
         role: "system",
@@ -152,7 +188,7 @@ async function describirImagen(client: OpenAI, modelo: string, imagenDataUrl: st
         ],
       },
     ],
-  });
+  }, { signal });
 
   return respuesta.output_text.trim() || null;
 }
@@ -161,12 +197,13 @@ export async function estimarConWebSearchOpenAI(
   diagnostico: Diagnostico,
   apiKey: string,
   modelo: string,
+  signal?: AbortSignal,
 ): Promise<{ diagnostico: Diagnostico; fuentes: FuenteWeb[] }> {
-  const client = new OpenAI({ apiKey });
+  const client = clienteOpenAI(apiKey);
 
   const busqueda = await client.responses.create({
-    model: modelo,
-    max_output_tokens: 1200,
+    model: modeloWeb(modelo),
+    ...opcionesGeneracion(modeloWeb(modelo), 1200),
     input: [
       {
         role: "system",
@@ -179,7 +216,7 @@ export async function estimarConWebSearchOpenAI(
       },
     ],
     tools: [{ type: "web_search_preview" }],
-  });
+  }, { signal });
 
   const fuentes = extraerFuentes(busqueda);
   const hallazgos = busqueda.output_text.trim();
@@ -190,7 +227,7 @@ export async function estimarConWebSearchOpenAI(
 
   const estructurado = await client.responses.create({
     model: modelo,
-    max_output_tokens: 700,
+    ...opcionesGeneracion(modelo, 700),
     input: [
       {
         role: "system",
@@ -210,7 +247,7 @@ export async function estimarConWebSearchOpenAI(
         strict: true,
       },
     },
-  });
+  }, { signal });
 
   const actualizado = validarDiagnostico(parsearJson(estructurado.output_text));
   return { diagnostico: { ...actualizado, fuente_estimacion: "web_search" }, fuentes };
@@ -221,16 +258,17 @@ export async function buscarProveedoresWebOpenAI(
   apiKey: string,
   modelo: string,
   ubicacion?: { lat: number; lon: number },
+  signal?: AbortSignal,
 ): Promise<ProveedorWeb[]> {
-  const client = new OpenAI({ apiKey });
+  const client = clienteOpenAI(apiKey);
 
   const cerca = ubicacion
     ? `El cliente esta en las coordenadas ${ubicacion.lat.toFixed(4)}, ${ubicacion.lon.toFixed(4)} (Paraguay).`
     : "El cliente esta en Paraguay, zona de Asuncion y Gran Asuncion.";
 
   const busqueda = await client.responses.create({
-    model: modelo,
-    max_output_tokens: 1200,
+    model: modeloWeb(modelo),
+    ...opcionesGeneracion(modeloWeb(modelo), 1200),
     input: [
       {
         role: "system",
@@ -243,14 +281,14 @@ export async function buscarProveedoresWebOpenAI(
       },
     ],
     tools: [{ type: "web_search_preview" }],
-  });
+  }, { signal });
 
   const hallazgos = busqueda.output_text.trim();
   if (!hallazgos) return [];
 
   const estructurado = await client.responses.create({
     model: modelo,
-    max_output_tokens: 700,
+    ...opcionesGeneracion(modelo, 700),
     input: [
       {
         role: "system",
@@ -270,7 +308,7 @@ export async function buscarProveedoresWebOpenAI(
         strict: true,
       },
     },
-  });
+  }, { signal });
 
   const datos = parsearJson(estructurado.output_text) as { proveedores?: unknown };
   const crudos = Array.isArray(datos.proveedores) ? datos.proveedores : [];

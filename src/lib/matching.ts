@@ -36,6 +36,7 @@ let embeddingsMemo: Promise<PerfilEmbedding[]> | null = null;
 export async function encontrarMatches(
   diagnostico: Diagnostico,
   ubicacionCliente?: UbicacionCliente,
+  soloLocal = false,
 ): Promise<{
   matches: MatchProfesional[];
   fallback_web: boolean;
@@ -44,7 +45,7 @@ export async function encontrarMatches(
   let queryEmbedding: number[] | undefined;
 
   try {
-    queryEmbedding = await embedTexto(textoDiagnostico(diagnostico));
+    if (!soloLocal) queryEmbedding = await embedTexto(textoDiagnostico(diagnostico));
   } catch (error) {
     if (!esErrorDeCuotaGemini(error)) throw error;
 

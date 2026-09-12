@@ -14,6 +14,7 @@ import { useConfiguracionIA } from "@/hooks/use-configuracion-ia";
 import type { UbicacionCliente } from "@/lib/matching";
 import { diagnosticoSinIdentificar } from "@/lib/types";
 import type { OrquestacionResultado, ProveedorWeb } from "@/lib/types";
+import type { ConfiguracionIA, ModoIA } from "@/lib/ia-config";
 
 type SpeechRecognitionResultLike = {
   readonly length: number;
@@ -133,19 +134,36 @@ export default function Home() {
     "pendiente" | "solicitando" | "activa" | "no_disponible"
   >("pendiente");
   const [resultado, setResultado] = useState<OrquestacionResultado | null>(null);
+  const [origenResultado, setOrigenResultado] = useState<{
+    configuracionIA: ConfiguracionIA | null;
+    modoIA: ModoIA;
+  } | null>(null);
   const [loading, setLoading] = useState(false);
   const [escuchando, setEscuchando] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [ayudaAbierta, setAyudaAbierta] = useState(false);
   const [enfocado, setEnfocado] = useState<string | null>(null);
   const [pregunta, setPregunta] = useState("");
-  const [proveedores, setProveedores] = useState<ProveedorWeb[]>([]);
-  const [buscandoProveedores, setBuscandoProveedores] = useState(false);
+  const [respuestaProveedores, setRespuestaProveedores] = useState<{
+    resultado: OrquestacionResultado;
+    configuracionIA: ConfiguracionIA | null;
+    ubicacion: UbicacionCliente | undefined;
+    proveedores: ProveedorWeb[];
+  } | null>(null);
   const { messages, sendMessage, isLoading: chatLoading } = useCopilotChatInternal();
-  const { config: configuracionIA } = useConfiguracionIA();
+  const { config: configuracionIA, modo: modoIA } = useConfiguracionIA();
+  const enviandoRef = useRef(false);
 
   const matches = resultado?.matches ?? [];
   const hayProfesionales = matches.length > 0;
+  const respuestaActual = respuestaProveedores?.resultado === resultado &&
+    respuestaProveedores?.configuracionIA === configuracionIA &&
+    respuestaProveedores?.ubicacion === ubicacion ? respuestaProveedores : null;
+  const proveedores = modoIA === "completo" ? respuestaActual?.proveedores ?? [] : [];
+  const permitirBusquedaWeb = modoIA === "completo" && origenResultado?.modoIA === "completo" &&
+    origenResultado.configuracionIA === configuracionIA;
+  const buscandoProveedores = permitirBusquedaWeb && Boolean(resultado) &&
+    !hayProfesionales && !respuestaActual;
 
   const micRingsRef = useRef<HTMLSpanElement>(null);
   const micAnimRef = useRef<AnimeInstance | null>(null);
@@ -154,7 +172,13 @@ export default function Home() {
     () => ({
       texto,
       imagenAdjunta: Boolean(imagenBase64),
-      ultimoResultado: resultado,
+      ultimoResultado: resultado ? {
+        diagnostico: resultado.diagnostico,
+        profesionales: resultado.matches.map((match) => ({
+          nombre: match.profesional.nombre,
+          explicacion: match.explicacion,
+        })),
+      } : null,
     }),
     [texto, imagenBase64, resultado],
   );
@@ -214,6 +238,7 @@ export default function Home() {
             imagenBase64,
             ubicacion: ubicacionParaMatching,
             configuracionIA,
+            modoIA,
           }),
         });
 
@@ -227,8 +252,12 @@ export default function Home() {
           throw new Error("No se pudo ejecutar el flujo.");
         }
 
-        const resultadoPayload = payload as OrquestacionResultado;
+        if (!esResultadoOrquestacion(payload)) {
+          throw new Error("No se recibio un diagnostico valido. Intenta de nuevo.");
+        }
+        const resultadoPayload = payload;
         setResultado(resultadoPayload);
+        setOrigenResultado({ configuracionIA, modoIA });
         if (textoManual) setTexto(textoManual);
         return resultadoPayload;
       } catch (caught) {
@@ -240,40 +269,38 @@ export default function Home() {
         setLoading(false);
       }
     },
-    [imagenBase64, texto, ubicacion, configuracionIA],
+    [imagenBase64, texto, ubicacion, configuracionIA, modoIA],
   );
 
   // El diagnostico ya esta en pantalla; los telefonos se piden aparte y se
   // suman cuando llegan, sin hacer esperar al resto.
   useEffect(() => {
-    if (!resultado || resultado.matches.length > 0) {
-      setProveedores([]);
+    if (!permitirBusquedaWeb || !resultado || resultado.matches.length > 0) {
       return;
     }
 
     let cancelado = false;
-    setBuscandoProveedores(true);
+    const controller = new AbortController();
 
     fetch("/api/proveedores", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ diagnostico: resultado.diagnostico, ubicacion, configuracionIA }),
+      signal: controller.signal,
+      body: JSON.stringify({ diagnostico: resultado.diagnostico, ubicacion, configuracionIA, modoIA }),
     })
       .then((respuesta) => respuesta.json())
       .then((datos: { proveedores?: ProveedorWeb[] }) => {
-        if (!cancelado) setProveedores(datos.proveedores ?? []);
+        if (!cancelado) setRespuestaProveedores({ resultado, configuracionIA, ubicacion, proveedores: datos.proveedores ?? [] });
       })
       .catch(() => {
-        if (!cancelado) setProveedores([]);
-      })
-      .finally(() => {
-        if (!cancelado) setBuscandoProveedores(false);
+        if (!cancelado) setRespuestaProveedores({ resultado, configuracionIA, ubicacion, proveedores: [] });
       });
 
     return () => {
       cancelado = true;
+      controller.abort();
     };
-  }, [resultado, ubicacion, configuracionIA]);
+  }, [resultado, ubicacion, configuracionIA, modoIA, permitirBusquedaWeb]);
 
   const solicitarUbicacion = () =>
     new Promise<UbicacionCliente | undefined>((resolve) => {
@@ -308,19 +335,33 @@ export default function Home() {
     });
 
   const enviarMensaje = async () => {
+    if (enviandoRef.current || chatLoading || loading) return;
     const mensaje = texto.trim();
     if (!mensaje && !imagenBase64) {
       setError("Describe el problema o subi una foto.");
       return;
     }
 
-    await solicitarUbicacion();
-    setError(null);
-    await sendMessage({
-      id: crypto.randomUUID(),
-      role: "user",
-      content: `${mensaje ? `${PREFIJO_DIAGNOSTICO}${mensaje}` : MENSAJE_SOLO_FOTO}${SUFIJO_BREVEDAD}`,
-    });
+    enviandoRef.current = true;
+    setLoading(true);
+    try {
+      const ubicacionActual = await solicitarUbicacion();
+      setError(null);
+      if (modoIA === "economico") {
+        await ejecutarDiagnostico(mensaje, ubicacionActual);
+      } else {
+        await sendMessage({
+          id: crypto.randomUUID(),
+          role: "user",
+          content: `${mensaje ? `${PREFIJO_DIAGNOSTICO}${mensaje}` : MENSAJE_SOLO_FOTO}${SUFIJO_BREVEDAD}`,
+        });
+      }
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "No se pudo ejecutar el diagnostico.");
+    } finally {
+      enviandoRef.current = false;
+      setLoading(false);
+    }
   };
 
   // En la ventana de ayuda el cliente repregunta sobre lo que ya vio, asi que el
@@ -354,7 +395,7 @@ export default function Home() {
         try {
           return await ejecutarDiagnostico(textoDesdeChat);
         } catch {
-          return undefined;
+          return { error: "No se pudo completar el diagnostico." };
         }
       },
       render: ({ status, result }) => (
@@ -382,7 +423,7 @@ export default function Home() {
     }
 
     try {
-      const dataUrl = await fileToDataUrl(file);
+      const dataUrl = await fileToDataUrl(file, modoIA === "economico");
       setImagenBase64(dataUrl);
       setImagenNombre(file.name);
       setError(null);
@@ -560,30 +601,34 @@ export default function Home() {
 
           </div>
 
-          {/* Con profesionales en pantalla el chat estorba: queda detras del boton
-              de ayuda. Sin resultados es lo unico que puede desbloquear al cliente,
-              asi que ocupa el lugar principal. */}
-          {hayProfesionales && resultado ? (
-            <ResumenDiagnostico
-              resultado={resultado}
-              onPedirAyuda={() => setAyudaAbierta(true)}
-            />
+          {resultado ? (
+            <div className="flex flex-col gap-4">
+              <ResumenDiagnostico
+                resultado={resultado}
+                onPedirAyuda={() => setAyudaAbierta(true)}
+              />
+              {buscandoProveedores || proveedores.length > 0 ? (
+                <ProveedoresWeb proveedores={proveedores} buscando={buscandoProveedores} />
+              ) : null}
+              {!hayProfesionales ? (
+                <a
+                  href={`https://www.google.com/search?q=${encodeURIComponent(
+                    `${resultado.diagnostico.categoria} ${resultado.diagnostico.sub_especialidad} ${ubicacion ? `cerca de ${ubicacion.lat.toFixed(3)}, ${ubicacion.lon.toFixed(3)}` : "Paraguay"}`,
+                  )}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-sm font-medium text-cobalt underline underline-offset-4"
+                >
+                  Buscar profesionales en Google
+                </a>
+              ) : null}
+            </div>
           ) : (
             <div className="flex flex-col gap-4">
-              {resultado && (buscandoProveedores || proveedores.length > 0) ? (
-                <ProveedoresWeb
-                  proveedores={proveedores}
-                  buscando={buscandoProveedores}
-                />
-              ) : null}
               <PanelConversacion
                 mensajes={messages}
                 cargando={loading || chatLoading}
-                vacio={
-                  resultado
-                    ? "No encontre profesionales para este caso. Contame un poco mas y sigo buscando."
-                    : "Contanos el problema y ServicIA encuentra a quien puede resolverlo."
-                }
+                vacio="Contanos el problema y ServicIA encuentra a quien puede resolverlo."
               />
             </div>
           )}
@@ -967,13 +1012,27 @@ function motivoDeVoz(codigo?: string) {
   return "No se pudo usar el microfono. Escribi el problema y sigo igual.";
 }
 
-function fileToDataUrl(file: File) {
-  return new Promise<string>((resolve, reject) => {
+async function fileToDataUrl(file: File, reducir = false) {
+  const original = await new Promise<string>((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = () => resolve(String(reader.result));
     reader.onerror = () => reject(reader.error);
     reader.readAsDataURL(file);
   });
+  if (!reducir) return original;
+  const imagen = new Image();
+  imagen.src = original;
+  await imagen.decode();
+  const escala = Math.min(1, 1024 / Math.max(imagen.naturalWidth, imagen.naturalHeight));
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.max(1, Math.round(imagen.naturalWidth * escala));
+  canvas.height = Math.max(1, Math.round(imagen.naturalHeight * escala));
+  const contexto = canvas.getContext("2d");
+  if (!contexto) return original;
+  contexto.fillStyle = "#ffffff";
+  contexto.fillRect(0, 0, canvas.width, canvas.height);
+  contexto.drawImage(imagen, 0, 0, canvas.width, canvas.height);
+  return canvas.toDataURL("image/jpeg", 0.8);
 }
 
 function isErrorPayload(payload: unknown): payload is { error: string } {

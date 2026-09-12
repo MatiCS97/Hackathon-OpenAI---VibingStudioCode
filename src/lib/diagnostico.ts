@@ -11,7 +11,7 @@ import {
   estimarConWebSearchOpenAI,
 } from "./diagnostico-openai";
 import { diagnosticoSinIdentificar } from "./types";
-import type { ConfiguracionIA } from "./ia-config";
+import type { ConfiguracionIA, ModoIA } from "./ia-config";
 import type { Diagnostico, FuenteWeb, ProveedorWeb } from "./types";
 
 const MODELO_ANTHROPIC_POR_DEFECTO = "claude-sonnet-5";
@@ -26,7 +26,7 @@ function clienteAnthropic(config?: ConfiguracionIA) {
     throw new Error("Falta una API key de Anthropic (variable de entorno o panel de configuracion).");
   }
 
-  return new Anthropic({ apiKey });
+  return new Anthropic({ apiKey, maxRetries: 0, timeout: 30_000 });
 }
 
 const DIAGNOSTICO_SCHEMA: Tool.InputSchema = {
@@ -70,13 +70,15 @@ type ImagenNormalizada = NonNullable<ReturnType<typeof normalizarImagenBase64>>;
 export async function diagnosticar(
   input: DiagnosticarInput,
   config?: ConfiguracionIA,
+  modo: ModoIA = "economico",
+  signal?: AbortSignal,
 ): Promise<Diagnostico> {
   if (config?.proveedor === "openai") {
-    return diagnosticarOpenAI(input, config.apiKey, config.modelo);
+    return diagnosticarOpenAI(input, config.apiKey, config.modelo, modo, signal);
   }
 
   const anthropic = clienteAnthropic(config);
-  const modelo = config?.modelo || MODELO_ANTHROPIC_POR_DEFECTO;
+  const modelo = config?.modelo || (modo === "economico" ? MODELO_ANTHROPIC_ECONOMICO : MODELO_ANTHROPIC_POR_DEFECTO);
   const imagen = normalizarImagenBase64(input.imagenBase64);
   const diagnostico = await estructurarDiagnostico(
     anthropic,
@@ -84,21 +86,23 @@ export async function diagnosticar(
     input.texto?.trim() ||
       "Diagnostica el problema observado en la imagen y estima costo/tiempo.",
     imagen,
+    signal,
   );
 
   // Obligado por el schema, el modelo prefiere responder "Desconocido" antes que
   // arriesgar una categoria. Pedirle primero que describa la foto en texto libre
   // le saca esa presion, y la descripcion alimenta el mismo paso estructurado.
-  if (!imagen || !diagnosticoSinIdentificar(diagnostico)) return diagnostico;
+  if (modo === "economico" || !imagen || !diagnosticoSinIdentificar(diagnostico)) return diagnostico;
 
-  const descripcion = await describirImagen(anthropic, imagen);
+  const descripcion = await describirImagen(anthropic, imagen, signal);
   if (!descripcion) return diagnostico;
 
   const segundoIntento = await estructurarDiagnostico(
     anthropic,
     modelo,
     `Un tecnico mira la foto del cliente y describe: ${descripcion}. A partir de eso diagnostica el problema y estima costo/tiempo.`,
-    imagen,
+    null,
+    signal,
   );
 
   return diagnosticoSinIdentificar(segundoIntento) ? diagnostico : segundoIntento;
@@ -109,6 +113,7 @@ async function estructurarDiagnostico(
   modelo: string,
   texto: string,
   imagen: ImagenNormalizada | null,
+  signal?: AbortSignal,
 ) {
   const content: Anthropic.Messages.MessageParam["content"] = [
     { type: "text", text: texto },
@@ -127,7 +132,7 @@ async function estructurarDiagnostico(
 
   const message = await anthropic.messages.create({
     model: modelo,
-    max_tokens: 900,
+    max_tokens: 700,
     system:
       "Sos un agente de diagnostico para un marketplace de servicios en Paraguay. Responde usando exclusivamente la tool registrar_diagnostico con el contrato exacto. Estima costos en guaranies paraguayos.",
     messages: [{ role: "user", content }],
@@ -139,6 +144,12 @@ async function estructurarDiagnostico(
       },
     ],
     tool_choice: { type: "tool", name: "registrar_diagnostico" },
+  }, { signal });
+
+  console.info("[IA diagnostico]", {
+    proveedor: "anthropic", modelo,
+    input_tokens: message.usage.input_tokens,
+    output_tokens: message.usage.output_tokens,
   });
 
   const block = message.content.find(
@@ -155,7 +166,7 @@ async function estructurarDiagnostico(
 
 // Describir una foto no exige el razonamiento de Sonnet, y esto solo corre
 // cuando la primera clasificacion ya fallo.
-async function describirImagen(anthropic: Anthropic, imagen: ImagenNormalizada) {
+async function describirImagen(anthropic: Anthropic, imagen: ImagenNormalizada, signal?: AbortSignal) {
   const message = await anthropic.messages.create({
     model: MODELO_ANTHROPIC_ECONOMICO,
     max_tokens: 400,
@@ -177,7 +188,7 @@ async function describirImagen(anthropic: Anthropic, imagen: ImagenNormalizada) 
         ],
       },
     ],
-  });
+  }, { signal });
 
   const texto = message.content.find(
     (item): item is TextBlock => item.type === "text",
@@ -192,9 +203,10 @@ async function describirImagen(anthropic: Anthropic, imagen: ImagenNormalizada) 
 export async function estimarConWebSearch(
   diagnostico: Diagnostico,
   config?: ConfiguracionIA,
+  signal?: AbortSignal,
 ): Promise<{ diagnostico: Diagnostico; fuentes: FuenteWeb[] }> {
   if (config?.proveedor === "openai") {
-    return estimarConWebSearchOpenAI(diagnostico, config.apiKey, config.modelo);
+    return estimarConWebSearchOpenAI(diagnostico, config.apiKey, config.modelo, signal);
   }
 
   const anthropic = clienteAnthropic(config);
@@ -213,8 +225,8 @@ export async function estimarConWebSearch(
         content: `Necesito precio y duracion de mercado para este trabajo: ${JSON.stringify(diagnostico)}. Busca referencias actuales y resumi los rangos encontrados.`,
       },
     ],
-    tools: [{ type: "web_search_20260209", name: "web_search", max_uses: 4 }],
-  });
+    tools: [{ type: "web_search_20260209", name: "web_search", max_uses: 1 }],
+  }, { signal });
 
   const fuentes = extraerFuentes(busqueda);
   const hallazgos = busqueda.content
@@ -250,7 +262,7 @@ export async function estimarConWebSearch(
       },
     ],
     tool_choice: { type: "tool", name: "registrar_diagnostico" },
-  });
+  }, { signal });
 
   const block = estructurado.content.find(
     (item): item is ToolUseBlock =>
@@ -359,9 +371,10 @@ export async function buscarProveedoresWeb(
   diagnostico: Diagnostico,
   ubicacion?: { lat: number; lon: number },
   config?: ConfiguracionIA,
+  signal?: AbortSignal,
 ): Promise<ProveedorWeb[]> {
   if (config?.proveedor === "openai") {
-    return buscarProveedoresWebOpenAI(diagnostico, config.apiKey, config.modelo, ubicacion);
+    return buscarProveedoresWebOpenAI(diagnostico, config.apiKey, config.modelo, ubicacion, signal);
   }
 
   const anthropic = clienteAnthropic(config);
@@ -392,7 +405,7 @@ export async function buscarProveedoresWeb(
       // negocios que devuelve la primera.
       { type: "web_search_20260209", name: "web_search", max_uses: 1 },
     ],
-  });
+  }, { signal });
 
   const hallazgos = busqueda.content
     .filter((item): item is TextBlock => item.type === "text")
@@ -423,7 +436,7 @@ export async function buscarProveedoresWeb(
       },
     ],
     tool_choice: { type: "tool", name: "registrar_proveedores" },
-  });
+  }, { signal });
 
   const block = estructurado.content.find(
     (item): item is ToolUseBlock =>

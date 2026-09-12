@@ -1,5 +1,6 @@
-import { diagnosticar, estimarConWebSearch } from "@/lib/diagnostico";
-import { configuracionDelServidor, leerConfiguracionDelBody } from "@/lib/ia-config";
+import { estimarConWebSearch } from "@/lib/diagnostico";
+import { diagnosticarConCache } from "@/lib/diagnostico-cache";
+import { configuracionDelServidor, leerConfiguracionDelBody, normalizarModoIA } from "@/lib/ia-config";
 import { encontrarMatches, type UbicacionCliente } from "@/lib/matching";
 import type { OrquestacionResultado } from "@/lib/types";
 
@@ -10,6 +11,7 @@ export async function POST(request: Request) {
       imagenBase64?: string;
       ubicacion?: UbicacionCliente;
       configuracionIA?: unknown;
+      modoIA?: unknown;
     };
 
     if (!body.texto?.trim() && !body.imagenBase64) {
@@ -22,23 +24,26 @@ export async function POST(request: Request) {
     // Si el visitante cargo su propia key en el panel de configuracion, viaja en
     // el body de este request y se usa solo para el; nunca se guarda del lado
     // del servidor. Sin eso, se usa la key del equipo (variable de entorno).
+    const modo = normalizarModoIA(body.modoIA);
     const configuracionIA =
-      leerConfiguracionDelBody(body.configuracionIA) ?? configuracionDelServidor();
+      leerConfiguracionDelBody(body.configuracionIA) ?? configuracionDelServidor(modo);
 
-    const diagnosticoInicial = await diagnosticar(body, configuracionIA);
+    const diagnosticoInicial = await diagnosticarConCache(body, configuracionIA, modo, request.signal);
     const ubicacionCliente = esUbicacionValida(body.ubicacion)
       ? body.ubicacion
       : undefined;
     const resultadoMatching = await encontrarMatches(
       diagnosticoInicial,
       ubicacionCliente,
+      modo === "economico",
     );
-    // La estimacion web corrige el costo del propio diagnostico, asi que no puede
-    // diferirse; el techo evita que una busqueda lenta bloquee la pantalla. Los
-    // telefonos de proveedores viven en /api/proveedores por lo contrario: son un
-    // extra y no vale la pena hacer esperar el diagnostico por ellos.
-    const estimacionWeb = resultadoMatching.fallback_web
-      ? await conTecho(estimarConWebSearch(diagnosticoInicial, configuracionIA), null)
+    // El mismo plazo cancela ambos pasos del enriquecimiento, no solo la espera.
+    const estimacionWeb = modo === "completo" && resultadoMatching.fallback_web
+      ? await estimarConWebSearch(
+          diagnosticoInicial,
+          configuracionIA,
+          AbortSignal.any([request.signal, AbortSignal.timeout(30_000)]),
+        ).catch(() => null)
       : null;
 
     const resultado: OrquestacionResultado = {
@@ -56,17 +61,6 @@ export async function POST(request: Request) {
 
     return Response.json({ error: message }, { status: 500 });
   }
-}
-
-const TECHO_ENRIQUECIMIENTO_MS = 30_000;
-
-function conTecho<T>(promesa: Promise<T>, siFalla: T): Promise<T> {
-  return Promise.race([
-    promesa.catch(() => siFalla),
-    new Promise<T>((resolver) =>
-      setTimeout(() => resolver(siFalla), TECHO_ENRIQUECIMIENTO_MS),
-    ),
-  ]);
 }
 
 function esUbicacionValida(ubicacion?: UbicacionCliente): ubicacion is UbicacionCliente {

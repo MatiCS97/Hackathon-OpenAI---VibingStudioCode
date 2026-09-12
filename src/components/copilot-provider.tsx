@@ -12,14 +12,15 @@ export function CopilotProvider({ children }: { children: React.ReactNode }) {
 
   // Si el visitante cargo su propia key, viaja como headers hacia el runtime de
   // CopilotKit (el body de ese endpoint es su propio protocolo, no uno propio).
-  const { config } = useConfiguracionIA();
-  const headers = config
-    ? {
+  const { config, modo } = useConfiguracionIA();
+  const headers = {
+    "x-servicia-modo": modo,
+    ...(config ? {
         "x-servicia-proveedor": config.proveedor,
         "x-servicia-modelo": config.modelo,
         "x-servicia-api-key": config.apiKey,
-      }
-    : undefined;
+      } : {}),
+  };
 
   return (
     <CopilotKit runtimeUrl={runtimeUrl} headers={headers}>

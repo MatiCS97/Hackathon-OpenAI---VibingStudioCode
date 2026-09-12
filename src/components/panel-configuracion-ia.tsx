@@ -2,11 +2,12 @@
 
 import { useEffect, useState } from "react";
 import { useConfiguracionIA } from "@/hooks/use-configuracion-ia";
-import { MODELOS_ANTHROPIC, type ProveedorIA } from "@/lib/ia-config";
+import { MODELOS_ANTHROPIC, MODELOS_OPENAI, MODELO_ANTHROPIC_ECONOMICO, MODELO_OPENAI_ECONOMICO, type ProveedorIA } from "@/lib/ia-config";
 
 export function BotonConfiguracionIA() {
   const [abierto, setAbierto] = useState(false);
-  const { config } = useConfiguracionIA();
+  const configuracion = useConfiguracionIA();
+  const { config, modo } = configuracion;
 
   return (
     <>
@@ -15,21 +16,30 @@ export function BotonConfiguracionIA() {
         onClick={() => setAbierto(true)}
         className="border border-line px-3 py-1.5 font-[family-name:var(--font-mono)] text-xs text-steel transition hover:border-cobalt hover:text-cobalt"
       >
-        {config ? `tu key · ${config.proveedor}` : "usar tu propia key"}
+        {config ? `tu key · ${config.proveedor}` : "Configurar IA"} · {modo === "economico" ? "ahorro" : "completo"}
       </button>
 
-      {abierto ? <PanelConfiguracionIA onCerrar={() => setAbierto(false)} /> : null}
+      {abierto ? <PanelConfiguracionIA configuracion={configuracion} onCerrar={() => setAbierto(false)} /> : null}
     </>
   );
 }
 
-function PanelConfiguracionIA({ onCerrar }: { onCerrar: () => void }) {
-  const { config, guardar } = useConfiguracionIA();
+function PanelConfiguracionIA({ onCerrar, configuracion }: {
+  onCerrar: () => void;
+  configuracion: ReturnType<typeof useConfiguracionIA>;
+}) {
+  const { config, guardar, modo, cambiarModo } = configuracion;
   const [proveedor, setProveedor] = useState<ProveedorIA>(config?.proveedor ?? "anthropic");
   const [modelo, setModelo] = useState(
-    config?.modelo ?? MODELOS_ANTHROPIC[0].id,
+    config?.modelo ?? MODELO_ANTHROPIC_ECONOMICO,
   );
   const [apiKey, setApiKey] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const modelos = proveedor === "anthropic" ? MODELOS_ANTHROPIC : MODELOS_OPENAI;
+  const [personalizado, setPersonalizado] = useState(
+    Boolean(config && !modelos.some((item) => item.id === config.modelo)),
+  );
+  const keyDisponible = apiKey.trim() || (proveedor === config?.proveedor ? config.apiKey : "");
 
   useEffect(() => {
     const alTeclear = (evento: KeyboardEvent) => {
@@ -40,19 +50,30 @@ function PanelConfiguracionIA({ onCerrar }: { onCerrar: () => void }) {
   }, [onCerrar]);
 
   const cambiarProveedor = (nuevo: ProveedorIA) => {
+    if (nuevo === proveedor) return;
     setProveedor(nuevo);
-    setModelo(nuevo === "anthropic" ? MODELOS_ANTHROPIC[0].id : "");
+    setModelo(nuevo === "anthropic" ? MODELO_ANTHROPIC_ECONOMICO : MODELO_OPENAI_ECONOMICO);
+    setPersonalizado(false);
+    setApiKey("");
   };
 
   const guardarYcerrar = () => {
-    if (!apiKey.trim() || !modelo.trim()) return;
-    guardar({ proveedor, modelo: modelo.trim(), apiKey: apiKey.trim() });
-    onCerrar();
+    if (!keyDisponible || !modelo.trim()) return;
+    try {
+      guardar({ proveedor, modelo: modelo.trim(), apiKey: keyDisponible });
+      onCerrar();
+    } catch {
+      setError("El navegador no permite guardar la configuracion.");
+    }
   };
 
   const volverALaKeyDelEquipo = () => {
-    guardar(null);
-    onCerrar();
+    try {
+      guardar(null);
+      onCerrar();
+    } catch {
+      setError("El navegador no permite borrar la configuracion.");
+    }
   };
 
   return (
@@ -64,7 +85,7 @@ function PanelConfiguracionIA({ onCerrar }: { onCerrar: () => void }) {
         role="dialog"
         aria-modal="true"
         aria-label="Configuracion de IA"
-        className="ventana-ayuda flex w-full max-w-md flex-col border border-line bg-paper shadow-[0_18px_48px_-12px_rgba(5,7,13,0.35)]"
+        className="ventana-ayuda flex max-h-[calc(100dvh-7rem)] w-full max-w-md flex-col overflow-y-auto border border-line bg-paper shadow-[0_18px_48px_-12px_rgba(5,7,13,0.35)]"
         onClick={(evento) => evento.stopPropagation()}
       >
         <div className="border-b border-line px-4 py-3">
@@ -78,9 +99,26 @@ function PanelConfiguracionIA({ onCerrar }: { onCerrar: () => void }) {
         </div>
 
         <div className="flex flex-col gap-4 p-4">
+          <label className="flex items-center justify-between gap-3 text-sm font-medium">
+            Modo economico
+            <input
+              type="checkbox"
+              title="Una consulta de diagnostico, matching local y sin busquedas web automaticas"
+              checked={modo === "economico"}
+              onChange={(evento) => {
+                try {
+                  cambiarModo(evento.target.checked ? "economico" : "completo");
+                } catch {
+                  setError("El navegador no permite guardar el modo.");
+                }
+              }}
+              className="h-4 w-4 accent-cobalt"
+            />
+          </label>
           <div className="grid grid-cols-2 gap-2">
             <button
               type="button"
+              aria-pressed={proveedor === "anthropic"}
               onClick={() => cambiarProveedor("anthropic")}
               className={`border px-3 py-2 text-sm font-medium transition ${
                 proveedor === "anthropic"
@@ -92,6 +130,7 @@ function PanelConfiguracionIA({ onCerrar }: { onCerrar: () => void }) {
             </button>
             <button
               type="button"
+              aria-pressed={proveedor === "openai"}
               onClick={() => cambiarProveedor("openai")}
               className={`border px-3 py-2 text-sm font-medium transition ${
                 proveedor === "openai"
@@ -103,25 +142,30 @@ function PanelConfiguracionIA({ onCerrar }: { onCerrar: () => void }) {
             </button>
           </div>
 
-          {proveedor === "anthropic" ? (
             <label className="flex flex-col gap-1 text-sm">
               <span className="font-medium text-ink">Modelo</span>
               <select
-                value={modelo}
-                onChange={(evento) => setModelo(evento.target.value)}
-                className="border border-line bg-mist/60 px-3 py-2 text-sm outline-none focus:border-cobalt"
+                aria-label="Modelo"
+                value={personalizado ? "personalizado" : modelo}
+                onChange={(evento) => {
+                  const manual = evento.target.value === "personalizado";
+                  setPersonalizado(manual);
+                  setModelo(manual ? "" : evento.target.value);
+                }}
+                className="min-w-0 w-full border border-line bg-mist/60 px-3 py-2 text-sm outline-none focus:border-cobalt"
               >
-                {MODELOS_ANTHROPIC.map((item) => (
+                {modelos.map((item) => (
                   <option key={item.id} value={item.id}>
                     {item.nombre}
                   </option>
                 ))}
+                <option value="personalizado">Otro modelo</option>
               </select>
             </label>
-          ) : (
+          {personalizado ? (
             <label className="flex flex-col gap-1 text-sm">
               <span className="font-medium text-ink">
-                Modelo (nombre exacto de tu cuenta de OpenAI)
+                ID del modelo
               </span>
               <input
                 value={modelo}
@@ -130,7 +174,7 @@ function PanelConfiguracionIA({ onCerrar }: { onCerrar: () => void }) {
                 className="border border-line bg-mist/60 px-3 py-2 text-sm outline-none focus:border-cobalt"
               />
             </label>
-          )}
+          ) : null}
 
           <label className="flex flex-col gap-1 text-sm">
             <span className="font-medium text-ink">
@@ -140,13 +184,14 @@ function PanelConfiguracionIA({ onCerrar }: { onCerrar: () => void }) {
               type="password"
               value={apiKey}
               onChange={(evento) => setApiKey(evento.target.value)}
-              placeholder={proveedor === "anthropic" ? "sk-ant-..." : "sk-..."}
+              placeholder={config?.proveedor === proveedor ? "Key guardada (dejar vacio para conservar)" : proveedor === "anthropic" ? "sk-ant-..." : "sk-..."}
               autoComplete="off"
               className="border border-line bg-mist/60 px-3 py-2 font-[family-name:var(--font-mono)] text-sm outline-none focus:border-cobalt"
             />
           </label>
 
-          <div className="flex items-center justify-between gap-2 pt-1">
+          {error ? <p role="alert" className="text-sm text-red-700">{error}</p> : null}
+          <div className="flex flex-wrap items-center justify-between gap-3 pt-1">
             {config ? (
               <button
                 type="button"
@@ -158,11 +203,12 @@ function PanelConfiguracionIA({ onCerrar }: { onCerrar: () => void }) {
             ) : (
               <span />
             )}
+            <button type="button" onClick={onCerrar} className="text-sm text-steel">Cerrar</button>
 
             <button
               type="button"
               onClick={guardarYcerrar}
-              disabled={!apiKey.trim() || !modelo.trim()}
+              disabled={!keyDisponible || !modelo.trim()}
               className="bg-cobalt px-3 py-2 text-sm font-semibold text-paper transition hover:bg-[#152fbf] disabled:cursor-not-allowed disabled:bg-steel"
             >
               Guardar

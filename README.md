@@ -4,8 +4,8 @@ Proyecto para la hackathon **Agents, Everywhere** (AI Tinkerers x OpenAI). Equip
 
 ServicIA es un agente embebible para marketplaces de servicios. El cliente describe un
 problema por texto, foto o voz; el agente lo diagnostica, estima costo y tiempo, y
-recomienda profesionales con una explicación concreta. Si la base local no alcanza,
-enriquece la respuesta con búsqueda web.
+recomienda profesionales con una explicación concreta. El modo económico está activo
+por defecto; el modo completo agrega conversación y enriquecimiento web automático.
 
 Es un prototipo genérico e independiente construido durante el evento.
 
@@ -18,28 +18,65 @@ código hace el resto: recuperar, filtrar, rankear y explicar. Esa separación e
 deliberada, porque el orden de los pasos no depende del problema del cliente y dejarlo
 a criterio del modelo agregaría latencia y variabilidad sin ganar nada.
 
-El cliente tiene una sola superficie de interacción. CopilotKit corre en modo
-**headless** (`useCopilotChat`): el campo de texto de la página *es* el input del chat,
-y el diagnóstico se renderiza como **Generative UI** dentro de la conversación en vez
-de como texto. No hay un widget de chat separado compitiendo con el formulario.
+En modo completo, CopilotKit corre en modo **headless** y puede invocar la acción de
+diagnóstico desde el chat. En modo económico, el botón llama directamente al pipeline
+y muestra el mismo resumen, evitando las llamadas de chat antes y después del diagnóstico.
+El chat sigue disponible para preguntas explícitas sobre el resultado.
+
+## Modelos y consumo
+
+En **Configurar IA**, cada visitante puede guardar su API key de Anthropic u OpenAI,
+elegir un modelo de la lista o ingresar otro ID compatible con visión y salida
+estructurada. Cambiar de modelo del mismo proveedor conserva la key guardada.
+La configuración se guarda en `localStorage` del navegador y se envía al servidor
+para cada consulta; la aplicación no escribe las claves en archivos, logs ni Git.
+Usar **Volver a la key del equipo** elimina la clave personal guardada.
+
+La lista de OpenAI incluye GPT-5 nano, GPT-4o mini, GPT-5.4 nano y GPT-5.4 mini.
+GPT-5 nano tiene la menor tarifa por token de esta lista: USD 0,05 por millón de
+tokens de entrada y USD 0,40 de salida. Los tokens de razonamiento también cuentan;
+la opción más barata por solicitud depende del trabajo y del modelo.
+Fuentes verificadas el 12/09/2026: [GPT-5 nano](https://developers.openai.com/api/docs/models/gpt-5-nano),
+[GPT-4o mini](https://developers.openai.com/api/docs/models/gpt-4o-mini),
+[GPT-5.4 nano](https://developers.openai.com/api/docs/models/gpt-5.4-nano),
+[GPT-5.4 mini](https://developers.openai.com/api/docs/models/gpt-5.4-mini).
+El acceso a cada modelo depende de la cuenta del visitante.
+
+**Modo económico (predeterminado):**
+
+- Una llamada de diagnóstico con el modelo elegido, sin lecturas adicionales de fotos
+  ambiguas ni reintentos automáticos del SDK.
+- Fotos cargadas en este modo reducidas a un máximo de 1024 px por lado.
+- Matching léxico por rubro, especialidad y ubicación, sin llamadas a Gemini.
+- Diagnósticos identificados en caché durante 10 minutos, hasta 100 entradas por
+  instancia del servidor, separadas por cuenta, modelo, modo, texto y foto. No se
+  persisten en disco; la caché no se comparte entre instancias de Vercel.
+- Sin búsqueda web automática. Si faltan profesionales, un enlace abre Google en
+  otra pestaña sin consumir tokens de la aplicación.
+- Sin key personal, usa Haiku 4.5 del equipo, o GPT-5 nano si el servidor usa OpenAI.
+  Una selección personal de modelo siempre se respeta.
+
+El **modo completo** mantiene matching semántico, chat y búsquedas automáticas, con
+costos adicionales. GPT-5 nano no admite la herramienta web: en ese caso, solo la
+búsqueda usa GPT-4o mini con la misma key. Las preguntas al chat consumen API en ambos
+modos. Los logs `[IA diagnostico]` muestran proveedor, modelo y tokens del diagnóstico,
+sin texto, imágenes ni claves; no incluyen el consumo del chat ni de búsquedas web.
 
 ## Cómo funciona por dentro
 
 **1. Diagnóstico — `src/lib/diagnostico.ts`**
 
 Claude recibe el texto, la foto, o ambos, y responde a través de una tool con
-`tool_choice` forzado. El esquema de esa tool *es* el contrato de datos, así que la
-respuesta nunca puede desviarse de la forma esperada.
+`tool_choice` forzado. OpenAI usa Responses API con JSON Schema estricto. Ambos
+devuelven el mismo contrato que valida el servidor.
 
-Cuando una foto no alcanza, el modelo tiende a escaparse con `"Desconocido"` antes que
-arriesgar una categoría — es el esquema el que lo presiona, no la falta de visión. En
-ese caso se hace un segundo pase pidiéndole que **describa la foto en texto libre**, sin
-esquema, y esa descripción vuelve a entrar al mismo paso estructurado. Un modelo
-describe mucho más suelto de lo que clasifica.
+En modo completo, una foto sin identificar puede recibir un pase descriptivo y una
+nueva clasificación usando esa descripción, sin adjuntar la foto otra vez. En modo
+económico se devuelve el primer resultado para que el usuario aporte más información.
 
 **2. Matching — `src/lib/matching.ts`**
 
-El diagnóstico se convierte en embedding con Gemini y se compara por similitud coseno
+En modo completo, el diagnóstico se convierte en embedding con Gemini y se compara por similitud coseno
 contra los perfiles, cuyos embeddings están pre-calculados y versionados en el repo —
 generarlos en caliente tardaría horas contra los límites de la API y no entra en un
 request HTTP.
@@ -62,9 +99,9 @@ fallar: se pierde precisión semántica, no el servicio.
 Cada recomendación cita datos concretos del perfil — especialidad declarada,
 certificaciones, trabajos completados, ciudad — en vez de una frase genérica.
 
-**4. Enriquecimiento web — tool nativa de Claude**
+**4. Enriquecimiento web (solo modo completo)**
 
-Dos usos distintos, los dos con citas de la fuente:
+Se usa la herramienta web de Anthropic u OpenAI según la configuración:
 
 - Si el mejor match queda por debajo del umbral, se busca el **costo real de mercado** y
   se reemplaza la estimación, marcando `fuente_estimacion: "web_search"`.
@@ -114,12 +151,24 @@ Copy-Item .env.local.example .env.local
 cp .env.local.example .env.local
 ```
 
-Se requieren estas variables:
+Para usar la cuenta de Anthropic del equipo:
 
 ```env
 ANTHROPIC_API_KEY=
 GEMINI_API_KEY=
 ```
+
+Para usar OpenAI como proveedor del servidor:
+
+```env
+IA_PROVEEDOR=openai
+OPENAI_API_KEY=
+OPENAI_MODELO=gpt-5-nano
+```
+
+`OPENAI_MODELO` es opcional (por defecto `gpt-5-nano`). Gemini solo es necesario para
+el matching semántico del modo completo. También se puede iniciar sin claves del
+equipo y cargar una clave personal desde **Configurar IA**.
 
 3. Iniciar el proyecto:
 
@@ -162,8 +211,14 @@ npm run lint
 npm run build
 ```
 
-Para desplegar en Vercel, configurar `ANTHROPIC_API_KEY` y `GEMINI_API_KEY` como
-variables de entorno del proyecto. No subir `.env.local`: está ignorado por Git.
+Pruebas de consumo con respuestas simuladas, sin usar claves ni créditos (Node 24):
+
+```bash
+node --test scripts/test-ia.mjs
+```
+
+Para desplegar en Vercel, configurar las variables del proveedor elegido y, para
+matching semántico, `GEMINI_API_KEY`. No subir `.env.local`: está ignorado por Git.
 
 ## Especificación completa
 

@@ -1,4 +1,5 @@
 import { diagnosticar, estimarConWebSearch } from "@/lib/diagnostico";
+import { leerConfiguracionDelBody } from "@/lib/ia-config";
 import { encontrarMatches, type UbicacionCliente } from "@/lib/matching";
 import type { OrquestacionResultado } from "@/lib/types";
 
@@ -8,6 +9,7 @@ export async function POST(request: Request) {
       texto?: string;
       imagenBase64?: string;
       ubicacion?: UbicacionCliente;
+      configuracionIA?: unknown;
     };
 
     if (!body.texto?.trim() && !body.imagenBase64) {
@@ -17,7 +19,12 @@ export async function POST(request: Request) {
       );
     }
 
-    const diagnosticoInicial = await diagnosticar(body);
+    // Si el visitante cargo su propia key en el panel de configuracion, viaja en
+    // el body de este request y se usa solo para el; nunca se guarda del lado
+    // del servidor. Sin eso, se usa la key del equipo (variable de entorno).
+    const configuracionIA = leerConfiguracionDelBody(body.configuracionIA);
+
+    const diagnosticoInicial = await diagnosticar(body, configuracionIA);
     const ubicacionCliente = esUbicacionValida(body.ubicacion)
       ? body.ubicacion
       : undefined;
@@ -30,7 +37,7 @@ export async function POST(request: Request) {
     // telefonos de proveedores viven en /api/proveedores por lo contrario: son un
     // extra y no vale la pena hacer esperar el diagnostico por ellos.
     const estimacionWeb = resultadoMatching.fallback_web
-      ? await conTecho(estimarConWebSearch(diagnosticoInicial), null)
+      ? await conTecho(estimarConWebSearch(diagnosticoInicial, configuracionIA), null)
       : null;
 
     const resultado: OrquestacionResultado = {

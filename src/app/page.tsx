@@ -8,7 +8,9 @@ import {
   useCopilotChatInternal,
   useCopilotReadable,
 } from "@copilotkit/react-core";
+import { BotonConfiguracionIA } from "@/components/panel-configuracion-ia";
 import { MapaProfesionales } from "@/components/mapa-profesionales";
+import { useConfiguracionIA } from "@/hooks/use-configuracion-ia";
 import type { UbicacionCliente } from "@/lib/matching";
 import { diagnosticoSinIdentificar } from "@/lib/types";
 import type { OrquestacionResultado, ProveedorWeb } from "@/lib/types";
@@ -140,6 +142,7 @@ export default function Home() {
   const [proveedores, setProveedores] = useState<ProveedorWeb[]>([]);
   const [buscandoProveedores, setBuscandoProveedores] = useState(false);
   const { messages, sendMessage, isLoading: chatLoading } = useCopilotChatInternal();
+  const { config: configuracionIA } = useConfiguracionIA();
 
   const matches = resultado?.matches ?? [];
   const hayProfesionales = matches.length > 0;
@@ -206,7 +209,12 @@ export default function Home() {
         const response = await fetch("/api/orchestrate", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ texto: textoFinal, imagenBase64, ubicacion: ubicacionParaMatching }),
+          body: JSON.stringify({
+            texto: textoFinal,
+            imagenBase64,
+            ubicacion: ubicacionParaMatching,
+            configuracionIA,
+          }),
         });
 
         const payload = (await response.json()) as unknown;
@@ -232,7 +240,7 @@ export default function Home() {
         setLoading(false);
       }
     },
-    [imagenBase64, texto, ubicacion],
+    [imagenBase64, texto, ubicacion, configuracionIA],
   );
 
   // El diagnostico ya esta en pantalla; los telefonos se piden aparte y se
@@ -249,7 +257,7 @@ export default function Home() {
     fetch("/api/proveedores", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ diagnostico: resultado.diagnostico, ubicacion }),
+      body: JSON.stringify({ diagnostico: resultado.diagnostico, ubicacion, configuracionIA }),
     })
       .then((respuesta) => respuesta.json())
       .then((datos: { proveedores?: ProveedorWeb[] }) => {
@@ -265,7 +273,7 @@ export default function Home() {
     return () => {
       cancelado = true;
     };
-  }, [resultado, ubicacion]);
+  }, [resultado, ubicacion, configuracionIA]);
 
   const solicitarUbicacion = () =>
     new Promise<UbicacionCliente | undefined>((resolve) => {
@@ -438,6 +446,7 @@ export default function Home() {
               Servic<span className="text-cobalt">IA</span>
             </span>
           </div>
+          <BotonConfiguracionIA />
         </header>
 
         <section className="grid gap-6 lg:grid-cols-[minmax(0,1.05fr)_minmax(0,0.95fr)] lg:items-start">

@@ -5,8 +5,29 @@ import type {
   Tool,
   ToolUseBlock,
 } from "@anthropic-ai/sdk/resources/messages/messages";
+import {
+  buscarProveedoresWebOpenAI,
+  diagnosticarOpenAI,
+  estimarConWebSearchOpenAI,
+} from "./diagnostico-openai";
 import { diagnosticoSinIdentificar } from "./types";
+import type { ConfiguracionIA } from "./ia-config";
 import type { Diagnostico, FuenteWeb, ProveedorWeb } from "./types";
+
+const MODELO_ANTHROPIC_POR_DEFECTO = "claude-sonnet-5";
+const MODELO_ANTHROPIC_ECONOMICO = "claude-haiku-4-5";
+
+// El visitante puede traer su propia key (Anthropic u OpenAI) desde el panel de
+// configuracion; sin eso, se usa la key del equipo via variable de entorno. La
+// key nunca se loguea ni se guarda: vive solo mientras dura este request.
+function clienteAnthropic(config?: ConfiguracionIA) {
+  const apiKey = config?.proveedor === "anthropic" ? config.apiKey : process.env.ANTHROPIC_API_KEY;
+  if (!apiKey) {
+    throw new Error("Falta una API key de Anthropic (variable de entorno o panel de configuracion).");
+  }
+
+  return new Anthropic({ apiKey });
+}
 
 const DIAGNOSTICO_SCHEMA: Tool.InputSchema = {
   type: "object",
@@ -39,8 +60,6 @@ const DIAGNOSTICO_SCHEMA: Tool.InputSchema = {
   ],
 };
 
-const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
-
 type DiagnosticarInput = {
   texto?: string;
   imagenBase64?: string;
@@ -48,13 +67,20 @@ type DiagnosticarInput = {
 
 type ImagenNormalizada = NonNullable<ReturnType<typeof normalizarImagenBase64>>;
 
-export async function diagnosticar(input: DiagnosticarInput): Promise<Diagnostico> {
-  if (!process.env.ANTHROPIC_API_KEY) {
-    throw new Error("Falta ANTHROPIC_API_KEY en el entorno.");
+export async function diagnosticar(
+  input: DiagnosticarInput,
+  config?: ConfiguracionIA,
+): Promise<Diagnostico> {
+  if (config?.proveedor === "openai") {
+    return diagnosticarOpenAI(input, config.apiKey, config.modelo);
   }
 
+  const anthropic = clienteAnthropic(config);
+  const modelo = config?.modelo || MODELO_ANTHROPIC_POR_DEFECTO;
   const imagen = normalizarImagenBase64(input.imagenBase64);
   const diagnostico = await estructurarDiagnostico(
+    anthropic,
+    modelo,
     input.texto?.trim() ||
       "Diagnostica el problema observado en la imagen y estima costo/tiempo.",
     imagen,
@@ -65,10 +91,12 @@ export async function diagnosticar(input: DiagnosticarInput): Promise<Diagnostic
   // le saca esa presion, y la descripcion alimenta el mismo paso estructurado.
   if (!imagen || !diagnosticoSinIdentificar(diagnostico)) return diagnostico;
 
-  const descripcion = await describirImagen(imagen);
+  const descripcion = await describirImagen(anthropic, imagen);
   if (!descripcion) return diagnostico;
 
   const segundoIntento = await estructurarDiagnostico(
+    anthropic,
+    modelo,
     `Un tecnico mira la foto del cliente y describe: ${descripcion}. A partir de eso diagnostica el problema y estima costo/tiempo.`,
     imagen,
   );
@@ -76,7 +104,12 @@ export async function diagnosticar(input: DiagnosticarInput): Promise<Diagnostic
   return diagnosticoSinIdentificar(segundoIntento) ? diagnostico : segundoIntento;
 }
 
-async function estructurarDiagnostico(texto: string, imagen: ImagenNormalizada | null) {
+async function estructurarDiagnostico(
+  anthropic: Anthropic,
+  modelo: string,
+  texto: string,
+  imagen: ImagenNormalizada | null,
+) {
   const content: Anthropic.Messages.MessageParam["content"] = [
     { type: "text", text: texto },
   ];
@@ -93,7 +126,7 @@ async function estructurarDiagnostico(texto: string, imagen: ImagenNormalizada |
   }
 
   const message = await anthropic.messages.create({
-    model: "claude-sonnet-5",
+    model: modelo,
     max_tokens: 900,
     system:
       "Sos un agente de diagnostico para un marketplace de servicios en Paraguay. Responde usando exclusivamente la tool registrar_diagnostico con el contrato exacto. Estima costos en guaranies paraguayos.",
@@ -122,9 +155,9 @@ async function estructurarDiagnostico(texto: string, imagen: ImagenNormalizada |
 
 // Describir una foto no exige el razonamiento de Sonnet, y esto solo corre
 // cuando la primera clasificacion ya fallo.
-async function describirImagen(imagen: ImagenNormalizada) {
+async function describirImagen(anthropic: Anthropic, imagen: ImagenNormalizada) {
   const message = await anthropic.messages.create({
-    model: "claude-haiku-4-5",
+    model: MODELO_ANTHROPIC_ECONOMICO,
     max_tokens: 400,
     system:
       "Describi lo que ves en la foto: materiales, instalaciones, daño visible, humedad, oxido, roturas, y el ambiente. No clasifiques ni des un diagnostico, solo descripcion concreta. Si la foto es ilegible decilo en una linea.",
@@ -158,13 +191,17 @@ async function describirImagen(imagen: ImagenNormalizada) {
 // invoca de inmediato), asi que primero se busca y despues se estructura.
 export async function estimarConWebSearch(
   diagnostico: Diagnostico,
+  config?: ConfiguracionIA,
 ): Promise<{ diagnostico: Diagnostico; fuentes: FuenteWeb[] }> {
-  if (!process.env.ANTHROPIC_API_KEY) {
-    throw new Error("Falta ANTHROPIC_API_KEY en el entorno.");
+  if (config?.proveedor === "openai") {
+    return estimarConWebSearchOpenAI(diagnostico, config.apiKey, config.modelo);
   }
 
+  const anthropic = clienteAnthropic(config);
+  const modelo = config?.modelo || MODELO_ANTHROPIC_POR_DEFECTO;
+
   const busqueda = await anthropic.messages.create({
-    model: "claude-sonnet-5",
+    model: modelo,
     // Es un resumen de precios en un parrafo, no un documento: 4000 sobraba de
     // margen sin necesidad, sin haber tocado nunca el techo.
     max_tokens: 1200,
@@ -195,7 +232,7 @@ export async function estimarConWebSearch(
   // Copiar 3 campos numericos a un schema ya definido es extraccion, no
   // diagnostico: no necesita el modelo que interpreto la foto o el texto.
   const estructurado = await anthropic.messages.create({
-    model: "claude-haiku-4-5",
+    model: MODELO_ANTHROPIC_ECONOMICO,
     max_tokens: 700,
     system:
       "Actualiza solamente costo_estimado_min, costo_estimado_max y horas_estimadas segun los hallazgos de la busqueda web. Manten el resto del contrato igual. Responde usando la tool registrar_diagnostico.",
@@ -321,15 +358,21 @@ const PROVEEDORES_SCHEMA: Tool.InputSchema = {
 export async function buscarProveedoresWeb(
   diagnostico: Diagnostico,
   ubicacion?: { lat: number; lon: number },
+  config?: ConfiguracionIA,
 ): Promise<ProveedorWeb[]> {
-  if (!process.env.ANTHROPIC_API_KEY) return [];
+  if (config?.proveedor === "openai") {
+    return buscarProveedoresWebOpenAI(diagnostico, config.apiKey, config.modelo, ubicacion);
+  }
+
+  const anthropic = clienteAnthropic(config);
+  const modelo = config?.modelo || MODELO_ANTHROPIC_POR_DEFECTO;
 
   const cerca = ubicacion
     ? `El cliente esta en las coordenadas ${ubicacion.lat.toFixed(4)}, ${ubicacion.lon.toFixed(4)} (Paraguay).`
     : "El cliente esta en Paraguay, zona de Asuncion y Gran Asuncion.";
 
   const busqueda = await anthropic.messages.create({
-    model: "claude-sonnet-5",
+    model: modelo,
     // Una lista corta de 3-4 negocios no necesita 4000 tokens de margen.
     max_tokens: 1200,
     system:
@@ -362,7 +405,7 @@ export async function buscarProveedoresWeb(
   // Misma logica que en estimarConWebSearch: extraer campos de un texto ya
   // encontrado es trabajo de Haiku, no de Sonnet.
   const estructurado = await anthropic.messages.create({
-    model: "claude-haiku-4-5",
+    model: MODELO_ANTHROPIC_ECONOMICO,
     max_tokens: 700,
     system:
       "Extrae los negocios mencionados usando la tool registrar_proveedores. Copia telefono, direccion y url solo si aparecen en el texto; si falta alguno, omiti ese campo. Maximo 4 proveedores.",

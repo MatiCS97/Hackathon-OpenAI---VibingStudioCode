@@ -36,6 +36,7 @@ yarn-error.log*
 
 # generated embeddings cache
 /data/profile-embeddings.json
+!/data/profile-embeddings.json
 
 # vercel
 .vercel

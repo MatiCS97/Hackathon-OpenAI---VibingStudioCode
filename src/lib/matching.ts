@@ -91,7 +91,12 @@ async function cargarOGenerarEmbeddings(): Promise<PerfilEmbedding[]> {
       });
     }
 
-    await writeFile(EMBEDDINGS_PATH, JSON.stringify(generados), "utf8");
+    try {
+      await writeFile(EMBEDDINGS_PATH, JSON.stringify(generados), "utf8");
+    } catch (error) {
+      console.warn("No se pudo guardar la cache de embeddings.", error);
+    }
+
     return generados;
   })();
 
@@ -124,13 +129,13 @@ async function embedTexto(texto: string, inputType: "query" | "document") {
 }
 
 function scoreFiltrosDuros(profesional: Profesional, diagnostico: Diagnostico) {
-  const categoria = diagnostico.categoria.toLocaleLowerCase("es");
-  const rubro = profesional.rubro.toLocaleLowerCase("es");
-  const subEspecialidad = diagnostico.sub_especialidad.toLocaleLowerCase("es");
+  const categoria = normalizarTexto(diagnostico.categoria);
+  const rubro = normalizarTexto(profesional.rubro);
+  const subEspecialidad = normalizarTexto(diagnostico.sub_especialidad);
 
   const rubroCompatible = categoria.includes(rubro) || rubro.includes(categoria);
   const especialidadCompatible = profesional.especialidades.some((especialidad) => {
-    const normalizada = especialidad.toLocaleLowerCase("es");
+    const normalizada = normalizarTexto(especialidad);
     return subEspecialidad.includes(normalizada) || normalizada.includes(subEspecialidad);
   });
 
@@ -138,9 +143,7 @@ function scoreFiltrosDuros(profesional: Profesional, diagnostico: Diagnostico) {
     diagnostico.certificaciones_requeridas.length === 0 ||
     diagnostico.certificaciones_requeridas.some((requerida) =>
       profesional.certificaciones.some((certificacion) =>
-        certificacion
-          .toLocaleLowerCase("es")
-          .includes(requerida.toLocaleLowerCase("es")),
+        normalizarTexto(certificacion).includes(normalizarTexto(requerida)),
       ),
     );
 
@@ -152,21 +155,28 @@ function scoreFiltrosDuros(profesional: Profesional, diagnostico: Diagnostico) {
 
 function textoDiagnostico(diagnostico: Diagnostico) {
   return [
-    diagnostico.categoria,
-    diagnostico.sub_especialidad,
-    `urgencia ${diagnostico.urgencia}`,
-    `certificaciones ${diagnostico.certificaciones_requeridas.join(", ")}`,
+    normalizarTexto(diagnostico.categoria),
+    normalizarTexto(diagnostico.sub_especialidad),
+    `urgencia ${normalizarTexto(diagnostico.urgencia)}`,
+    `certificaciones ${diagnostico.certificaciones_requeridas.map(normalizarTexto).join(", ")}`,
   ].join(". ");
 }
 
 function textoPerfil(profesional: Profesional) {
   return [
-    profesional.rubro,
-    profesional.especialidades.join(", "),
-    profesional.certificaciones.join(", "),
-    profesional.bio,
-    profesional.ubicacion.ciudad,
+    normalizarTexto(profesional.rubro),
+    profesional.especialidades.map(normalizarTexto).join(", "),
+    profesional.certificaciones.map(normalizarTexto).join(", "),
+    normalizarTexto(profesional.bio),
+    normalizarTexto(profesional.ubicacion.ciudad),
   ].join(". ");
+}
+
+function normalizarTexto(texto: string) {
+  return texto
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLocaleLowerCase("es");
 }
 
 function cosineSimilarity(a: number[], b: number[]) {

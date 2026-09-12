@@ -39,6 +39,42 @@ Auditor: Claude (Orchestator)
 - No agregar autenticación, base de datos real, ni testing framework pesado.
 - No tocar `scripts/generate_profiles.py` ni regenerar el dataset salvo que cambie el contrato de perfil.
 
+## Generative UI dentro del chat de CopilotKit (para Codex)
+
+Fecha: 2026-09-12
+
+Estado actual: `page.tsx` ya tiene `useCopilotAction("diagnosticarProblema", ...)`
+con un `handler` que llama a `ejecutarDiagnostico(texto)` — funciona, pero el
+resultado (diagnóstico + profesionales) solo se ve en los paneles de la página
+(`SignalPanel`/`Matches`), NO adentro de la burbuja del chat. O sea, si alguien
+le pregunta al chat de CopilotKit, la acción se ejecuta "a ciegas": no hay
+feedback visual en el chat mismo, hay que mirar afuera de la burbuja.
+
+Esto no cumple lo que pedía originalmente `CLAUDE.md` (sección de pipeline,
+punto 4: "usar `useCopilotAction` + `useCopilotReadable` ... como Generative UI
+**dentro del chat** (cards de diagnóstico, cards de profesionales con
+explicación)").
+
+**Instrucción**: agregarle a `useCopilotAction("diagnosticarProblema", ...)` un
+`render` (o `renderAndWaitForResponse` si aplica en esta versión de
+`@copilotkit/react-core`) que muestre, adentro de la burbuja del chat:
+- Mientras se ejecuta: un estado de "diagnosticando" (puede reusar el mismo
+  lenguaje visual de sonar/pulso que ya tiene `SignalPanel` en la página, para
+  que sea consistente).
+- Cuando termina: una card compacta con el diagnóstico (categoría,
+  sub_especialidad, urgencia, costo, tiempo) y la lista corta de profesionales
+  recomendados con su score y explicación — mismos datos que ya devuelve
+  `OrquestacionResultado`, solo que renderizados adentro del chat en vez de (o
+  además de) los paneles de la página.
+
+**Qué NO hacer:**
+- No duplicar la lógica de fetch — seguir usando el mismo `ejecutarDiagnostico`
+  que ya existe, solo cambiar qué se renderiza como resultado de la acción.
+- No hace falta que el chat soporte foto/voz — eso sigue siendo exclusivo del
+  formulario principal de la página. Este cambio es solo para que, cuando se
+  use el chat con texto, el resultado se vea ahí mismo.
+- No tocar `matching.ts`, el script de embeddings, ni `package.json`.
+
 ## Siguiente auditoría
 
 Voy a releer el repo después del próximo commit de ChatGPT y actualizar este archivo con una Ronda 2, marcando qué de esta lista quedó hecho, qué falta, y nuevos hallazgos (bugs, desvíos del contrato, etc).

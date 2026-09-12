@@ -334,16 +334,10 @@ export async function buscarProveedoresWeb(
       },
     ],
     tools: [
-      {
-        type: "web_search_20260209",
-        name: "web_search",
-        max_uses: 4,
-        user_location: {
-          type: "approximate",
-          country: "PY",
-          timezone: "America/Asuncion",
-        },
-      },
+      // Sin user_location: la API solo acepta un set de paises y rechaza PY con
+      // un 400. La zona va en el texto de la consulta, que alcanza para que la
+      // busqueda devuelva negocios locales.
+      { type: "web_search_20260209", name: "web_search", max_uses: 4 },
     ],
   });
 

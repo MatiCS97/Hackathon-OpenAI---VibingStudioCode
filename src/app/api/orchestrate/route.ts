@@ -32,10 +32,14 @@ export async function POST(request: Request) {
     // Sin nadie en la base, un precio de referencia no le sirve al cliente: lo que
     // necesita es un telefono. Las dos busquedas van en paralelo para no sumar
     // latencia una arriba de la otra.
+    // Las dos son mejoras sobre el diagnostico, no el diagnostico: si una falla
+    // el cliente igual tiene que recibir lo que ya se calculo.
     const [estimacionWeb, proveedoresWeb] = await Promise.all([
-      resultadoMatching.fallback_web ? estimarConWebSearch(diagnosticoInicial) : null,
+      resultadoMatching.fallback_web
+        ? estimarConWebSearch(diagnosticoInicial).catch(() => null)
+        : null,
       resultadoMatching.matches.length === 0
-        ? buscarProveedoresWeb(diagnosticoInicial, ubicacionCliente)
+        ? buscarProveedoresWeb(diagnosticoInicial, ubicacionCliente).catch(() => [])
         : [],
     ]);
 

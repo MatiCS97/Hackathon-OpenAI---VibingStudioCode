@@ -5,6 +5,7 @@ import type {
   Tool,
   ToolUseBlock,
 } from "@anthropic-ai/sdk/resources/messages/messages";
+import { diagnosticoSinIdentificar } from "./types";
 import type { Diagnostico, FuenteWeb } from "./types";
 
 const DIAGNOSTICO_SCHEMA: Tool.InputSchema = {
@@ -45,28 +46,48 @@ type DiagnosticarInput = {
   imagenBase64?: string;
 };
 
+type ImagenNormalizada = NonNullable<ReturnType<typeof normalizarImagenBase64>>;
+
 export async function diagnosticar(input: DiagnosticarInput): Promise<Diagnostico> {
   if (!process.env.ANTHROPIC_API_KEY) {
     throw new Error("Falta ANTHROPIC_API_KEY en el entorno.");
   }
 
+  const imagen = normalizarImagenBase64(input.imagenBase64);
+  const diagnostico = await estructurarDiagnostico(
+    input.texto?.trim() ||
+      "Diagnostica el problema observado en la imagen y estima costo/tiempo.",
+    imagen,
+  );
+
+  // Obligado por el schema, el modelo prefiere responder "Desconocido" antes que
+  // arriesgar una categoria. Pedirle primero que describa la foto en texto libre
+  // le saca esa presion, y la descripcion alimenta el mismo paso estructurado.
+  if (!imagen || !diagnosticoSinIdentificar(diagnostico)) return diagnostico;
+
+  const descripcion = await describirImagen(imagen);
+  if (!descripcion) return diagnostico;
+
+  const segundoIntento = await estructurarDiagnostico(
+    `Un tecnico mira la foto del cliente y describe: ${descripcion}. A partir de eso diagnostica el problema y estima costo/tiempo.`,
+    imagen,
+  );
+
+  return diagnosticoSinIdentificar(segundoIntento) ? diagnostico : segundoIntento;
+}
+
+async function estructurarDiagnostico(texto: string, imagen: ImagenNormalizada | null) {
   const content: Anthropic.Messages.MessageParam["content"] = [
-    {
-      type: "text",
-      text:
-        input.texto?.trim() ||
-        "Diagnostica el problema observado en la imagen y estima costo/tiempo.",
-    },
+    { type: "text", text: texto },
   ];
 
-  const image = normalizarImagenBase64(input.imagenBase64);
-  if (image) {
+  if (imagen) {
     content.push({
       type: "image",
       source: {
         type: "base64",
-        media_type: image.mediaType,
-        data: image.data,
+        media_type: imagen.mediaType,
+        data: imagen.data,
       },
     });
   }
@@ -97,6 +118,37 @@ export async function diagnosticar(input: DiagnosticarInput): Promise<Diagnostic
   }
 
   return validarDiagnostico(block.input);
+}
+
+async function describirImagen(imagen: ImagenNormalizada) {
+  const message = await anthropic.messages.create({
+    model: "claude-sonnet-5",
+    max_tokens: 400,
+    system:
+      "Describi lo que ves en la foto: materiales, instalaciones, daño visible, humedad, oxido, roturas, y el ambiente. No clasifiques ni des un diagnostico, solo descripcion concreta. Si la foto es ilegible decilo en una linea.",
+    messages: [
+      {
+        role: "user",
+        content: [
+          { type: "text", text: "¿Que se ve en esta foto?" },
+          {
+            type: "image",
+            source: {
+              type: "base64",
+              media_type: imagen.mediaType,
+              data: imagen.data,
+            },
+          },
+        ],
+      },
+    ],
+  });
+
+  const texto = message.content.find(
+    (item): item is TextBlock => item.type === "text",
+  )?.text;
+
+  return texto?.trim() || null;
 }
 
 // Dos llamadas a proposito: forzar tool_choice a registrar_diagnostico en la misma

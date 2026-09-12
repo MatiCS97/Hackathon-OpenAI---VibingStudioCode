@@ -7,6 +7,7 @@ import {
   useCopilotReadable,
 } from "@copilotkit/react-core";
 import type { UbicacionCliente } from "@/lib/matching";
+import { diagnosticoSinIdentificar } from "@/lib/types";
 import type { OrquestacionResultado } from "@/lib/types";
 
 type SpeechRecognitionResultLike = {
@@ -47,6 +48,20 @@ declare global {
 
 const TIPOS_IMAGEN_ADMITIDOS = ["image/jpeg", "image/png", "image/webp", "image/gif"];
 const TAMANO_MAXIMO_IMAGEN = 5 * 1024 * 1024;
+
+// El modelo necesita la instruccion explicita para invocar la accion, pero el
+// cliente no tiene por que leerla: se envia con el prefijo y se muestra sin el.
+const PREFIJO_DIAGNOSTICO =
+  "Usa la accion diagnosticarProblema para diagnosticar este problema: ";
+const MENSAJE_SOLO_FOTO =
+  "Usa la accion diagnosticarProblema con texto 'Diagnostica el problema de la foto adjunta'. El cliente subio una foto y no escribio descripcion.";
+
+function textoVisible(contenido: string) {
+  if (contenido === MENSAJE_SOLO_FOTO) return "Subi una foto para diagnosticar.";
+  return contenido.startsWith(PREFIJO_DIAGNOSTICO)
+    ? contenido.slice(PREFIJO_DIAGNOSTICO.length)
+    : contenido;
+}
 
 export default function Home() {
   const [texto, setTexto] = useState("");
@@ -192,9 +207,7 @@ export default function Home() {
     await sendMessage({
       id: crypto.randomUUID(),
       role: "user",
-      content: mensaje
-        ? `Usa la accion diagnosticarProblema para diagnosticar este problema: ${mensaje}`
-        : "Usa la accion diagnosticarProblema con texto 'Diagnostica el problema de la foto adjunta'. El cliente subio una foto y no escribio descripcion.",
+      content: mensaje ? `${PREFIJO_DIAGNOSTICO}${mensaje}` : MENSAJE_SOLO_FOTO,
     });
   };
 
@@ -443,9 +456,17 @@ function Conversacion({
   resultado: OrquestacionResultado | null;
   cargando: boolean;
 }) {
-  const mensajesDeTexto = mensajes.filter(
-    (mensaje) => typeof mensaje.content === "string" && mensaje.content.trim().length > 0,
-  );
+  // El resultado de la accion tambien llega como mensaje con contenido string, y
+  // sin filtrarlo el JSON entero se imprimia arriba de la card que ya lo muestra.
+  const mensajesDeTexto = mensajes.filter((mensaje) => {
+    if (mensaje.role !== "user" && mensaje.role !== "assistant") return false;
+    if (typeof mensaje.content !== "string") return false;
+
+    const contenido = mensaje.content.trim();
+    if (!contenido) return false;
+
+    return !(contenido.startsWith("{") && contenido.includes('"diagnostico"'));
+  });
 
   return (
     <section className="flex min-h-[32rem] flex-col border border-line bg-mist/40 p-4">
@@ -468,7 +489,7 @@ function Conversacion({
                 : "self-start border border-line bg-paper px-3 py-2 text-sm leading-6 text-ink"
             }
           >
-            {mensaje.content as string}
+            {textoVisible(mensaje.content as string)}
           </p>
         ))}
 
@@ -552,7 +573,7 @@ function ChatDiagnostico({
   // Claude devuelve "Desconocido" (u otra variante) cuando la foto no le alcanza
   // para identificar el problema. Mostrar la card normal ahi deja "Desconocido,
   // 0 Gs, 0 h" y cero profesionales, que parece un error en vez de un pedido.
-  if (/desconoc|no identific|indetermin/i.test(diagnostico.categoria)) {
+  if (diagnosticoSinIdentificar(diagnostico)) {
     return (
       <section className="my-2 border border-cobalt/30 bg-mist p-3 text-ink">
         <p className="font-[family-name:var(--font-display)] text-sm font-semibold">

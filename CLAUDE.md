@@ -3,7 +3,7 @@
 # Proyecto: Agente de diagnóstico y matching de precisión
 
 Hackathon "Agents, Everywhere" (AI Tinkerers x OpenAI). Deadline submission: 12 de
-septiembre, 5:00 PM EDT. Equipo: PromecTeam. Repo:
+septiembre, 5:00 PM EDT. Equipo: Vibing Studio Code. Repo:
 https://github.com/MatiCS97/Hackathon-OpenAI---PromecTeam (creado hoy, dentro de la
 ventana del evento).
 
@@ -12,8 +12,8 @@ ventana del evento).
 El proyecto debe ser **construido durante el evento**. Todo lo hecho antes de llegar
 (ver sección "Ya hecho" abajo) es setup/boilerplate/dataset, NO funcionalidad central.
 El pipeline real (diagnóstico → matching → explicabilidad) se escribe en vivo mañana.
-No tocar código de producción de ChambaYa — este es un prototipo genérico e
-independiente, nuevo, en este repo.
+Este es un prototipo genérico e independiente, nuevo, construido desde cero en este
+repo, pensado para integrarse en cualquier app de servicios.
 
 ## La idea
 
@@ -45,7 +45,7 @@ Un agente embebible en cualquier app de servicios: el usuario describe su proble
   `runtime`). UI de chat via `CopilotPopup` (cambiar a `CopilotChat`/`CopilotSidebar`
   si se quiere integrado en vez de flotante).
 - **Dataset: sintético**, generado localmente (ver `scripts/generate_profiles.py`),
-  no hay datos reales de ChambaYa disponibles/usados.
+  no se usan datos reales de ninguna plataforma.
 
 ## Ya hecho (antes del evento, es setup válido)
 
@@ -115,8 +115,9 @@ programar — es el contrato entre módulos.
    botón de mic (Web Speech API) para voz, y usar `useCopilotAction` +
    `useCopilotReadable` de CopilotKit para conectar todo esto como Generative UI
    dentro del chat (cards de diagnóstico, cards de profesionales con explicación).
-5. **Demo host app**: mini página tipo "marketplace genérico de servicios" para que
-   el video de demo no dependa de ChambaYa.
+5. **Demo host app**: mini página tipo "marketplace genérico de servicios" para
+   mostrar el agente embebido en un caso de uso real, sin atarlo a ninguna app
+   existente.
 
 ## Roles (sección 5 de la guía)
 

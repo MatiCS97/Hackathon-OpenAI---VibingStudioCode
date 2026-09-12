@@ -1,15 +1,14 @@
 # Agente de diagnóstico y matching de precisión
 
-Proyecto para la hackathon **Agents, Everywhere** (AI Tinkerers x OpenAI). Equipo: **PromecTeam**.
+Proyecto para la hackathon **Agents, Everywhere** (AI Tinkerers x OpenAI). Equipo: **Vibing Studio Code**.
 
 Un agente embebible en cualquier app de servicios: el usuario describe su problema
 (texto, foto o voz), y el agente lo diagnostica, busca profesionales que realmente
 resuelven ese problema específico (no solo por categoría) y explica por qué recomienda
 a cada uno, con costo y tiempo estimados.
 
-Inspirado en el mismo problema que resuelve ChambaYa, pero este es un **prototipo
-nuevo e independiente**, construido desde cero durante el evento — no toca código de
-producción de ChambaYa.
+Es un **prototipo genérico e independiente**, construido desde cero durante el evento,
+pensado para integrarse en cualquier marketplace de servicios.
 
 ## Stack
 

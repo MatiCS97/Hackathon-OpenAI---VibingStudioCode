@@ -36,10 +36,13 @@ export interface MatchProfesional {
   profesional: Profesional;
 }
 
-// Claude responde "Desconocido" (u otra variante) cuando no logra identificar el
-// problema. Lo comparten el servidor, que reintenta, y la UI, que pide mas datos.
+// Claude avisa que no logro identificar el problema con un centinela que cambia
+// segun la corrida: "Desconocido", "<UNKNOWN>", "No identificado". Lo comparten el
+// servidor, que reintenta describiendo la foto, y la UI, que pide mas datos.
 export function diagnosticoSinIdentificar(diagnostico: Diagnostico) {
-  return /desconoc|no identific|indetermin/i.test(diagnostico.categoria);
+  return /desconoc|unknown|no identific|sin identific|indetermin/i.test(
+    diagnostico.categoria,
+  );
 }
 
 export interface FuenteWeb {

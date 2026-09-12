@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   useCopilotAction,
+  useCopilotAdditionalInstructions,
   useCopilotChatInternal,
   useCopilotReadable,
 } from "@copilotkit/react-core";
@@ -63,6 +64,53 @@ function textoVisible(contenido: string) {
     : contenido;
 }
 
+// Al modelo se le pide texto plano, pero cuando igual manda markdown el HTML
+// colapsa los saltos de linea y queda un parrafo con asteriscos sueltos. Esto
+// cubre lo unico que llega a usar: titulos, viñetas y negritas.
+function TextoChat({ contenido }: { contenido: string }) {
+  const lineas = contenido
+    .split("\n")
+    .map((linea) => linea.trim())
+    .filter(Boolean);
+
+  return (
+    <>
+      {lineas.map((linea, indice) => {
+        const esItem = /^(?:[-*•]|\d+[.)])\s+/.test(linea);
+        const esTitulo = /^#{1,6}\s+/.test(linea);
+        const limpia = linea
+          .replace(/^#{1,6}\s+/, "")
+          .replace(/^(?:[-*•]|\d+[.)])\s+/, "");
+
+        return (
+          <span
+            key={indice}
+            className={[
+              "block",
+              indice > 0 ? "mt-1" : "",
+              esItem ? "pl-3 -indent-3" : "",
+              esTitulo ? "font-semibold" : "",
+            ]
+              .filter(Boolean)
+              .join(" ")}
+          >
+            {esItem ? "· " : null}
+            {conNegritas(limpia)}
+          </span>
+        );
+      })}
+    </>
+  );
+}
+
+function conNegritas(texto: string) {
+  return texto
+    .split(/\*\*(.+?)\*\*/g)
+    .map((parte, indice) =>
+      indice % 2 === 1 ? <strong key={indice}>{parte}</strong> : parte,
+    );
+}
+
 export default function Home() {
   const [texto, setTexto] = useState("");
   const [imagenBase64, setImagenBase64] = useState<string | undefined>();
@@ -93,6 +141,11 @@ export default function Home() {
     description:
       "Estado actual del diagnostico, input del usuario y recomendaciones visibles en ServicIA.",
     value: resumenCopilot,
+  });
+
+  useCopilotAdditionalInstructions({
+    instructions:
+      "Despues de usar diagnosticarProblema, el cliente ya ve una tarjeta con la categoria, el costo, el tiempo y los profesionales recomendados. No repitas esos datos. Responde en una o dos frases cortas, en español rioplatense, texto plano: sin markdown, sin asteriscos, sin titulos, sin listas numeradas y sin emojis. Si no hubo profesionales, deci en una frase que te falta informacion y que dato concreto necesitas.",
   });
 
   useEffect(() => {
@@ -481,16 +534,16 @@ function Conversacion({
 
       <div className="flex flex-1 flex-col gap-3 py-4">
         {mensajesDeTexto.map((mensaje) => (
-          <p
+          <div
             key={mensaje.id}
             className={
               mensaje.role === "user"
-                ? "self-end bg-ink px-3 py-2 text-sm leading-6 text-paper"
-                : "self-start border border-line bg-paper px-3 py-2 text-sm leading-6 text-ink"
+                ? "max-w-[85%] self-end bg-ink px-3 py-2 text-sm leading-6 text-paper"
+                : "max-w-[92%] self-start border border-line bg-paper px-3 py-2 text-sm leading-6 text-ink"
             }
           >
-            {textoVisible(mensaje.content as string)}
-          </p>
+            <TextoChat contenido={textoVisible(mensaje.content as string)} />
+          </div>
         ))}
 
         {cargando ? <ChatDiagnostico status="executing" /> : null}

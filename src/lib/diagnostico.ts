@@ -17,6 +17,7 @@ import {
 } from "./diagnostico-openai";
 import { diagnosticoSinIdentificar } from "./types";
 import { esCompatible, type ConfiguracionIA, type ModoIA } from "./ia-config";
+import { INSTRUCCION_RUBROS } from "./matching";
 import type { Diagnostico, FuenteWeb, ProveedorWeb } from "./types";
 
 const MODELO_ANTHROPIC_POR_DEFECTO = "claude-sonnet-5";
@@ -143,7 +144,7 @@ async function estructurarDiagnostico(
     model: modelo,
     max_tokens: 700,
     system:
-      "Sos un agente de diagnostico para un marketplace de servicios en Paraguay. Responde usando exclusivamente la tool registrar_diagnostico con el contrato exacto. Estima costos en guaranies paraguayos.",
+      `Sos un agente de diagnostico para un marketplace de servicios en Paraguay. Responde usando exclusivamente la tool registrar_diagnostico con el contrato exacto. Estima costos en guaranies paraguayos. ${INSTRUCCION_RUBROS}`,
     messages: [{ role: "user", content }],
     tools: [
       {

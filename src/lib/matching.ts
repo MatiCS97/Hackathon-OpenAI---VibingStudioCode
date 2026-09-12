@@ -31,6 +31,15 @@ export type UbicacionCliente = {
 
 const profesionales = perfiles as Profesional[];
 
+// Vocabulario real de la base, sacado del dataset para que no se desincronice.
+// Sin esto cada proveedor elige su propio sinonimo — Gemini devolvia "Fontaneria"
+// donde la base dice "Plomeria" — y scoreFiltrosDuros descartaba a los 2471
+// plomeros por una palabra. Va en el prompt de diagnostico de los tres modulos.
+export const RUBROS_LOCALES = [...new Set(profesionales.map((perfil) => perfil.rubro))];
+
+export const INSTRUCCION_RUBROS =
+  `Para "categoria" usa exactamente uno de estos rubros cuando el problema encaje: ${RUBROS_LOCALES.join(", ")}. Si no encaja en ninguno, nombra el oficio que corresponda.`;
+
 let embeddingsMemo: Promise<PerfilEmbedding[]> | null = null;
 
 export async function encontrarMatches(

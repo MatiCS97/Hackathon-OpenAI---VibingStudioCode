@@ -9,6 +9,7 @@ import {
   validarDiagnostico,
 } from "./diagnostico-openai";
 import { BASE_URL_COMPATIBLE, type ModoIA, type ProveedorCompatible } from "./ia-config";
+import { INSTRUCCION_RUBROS } from "./matching";
 import { diagnosticoSinIdentificar } from "./types";
 import type { Diagnostico, FuenteWeb, ProveedorWeb } from "./types";
 
@@ -19,7 +20,7 @@ import type { Diagnostico, FuenteWeb, ProveedorWeb } from "./types";
 // web. El contrato de datos y los validadores son los mismos.
 
 const SISTEMA_DIAGNOSTICO =
-  "Sos un agente de diagnostico para un marketplace de servicios en Paraguay. Devolve exclusivamente el JSON del contrato pedido. Estima costos en guaranies paraguayos.";
+  `Sos un agente de diagnostico para un marketplace de servicios en Paraguay. Devolve exclusivamente el JSON del contrato pedido. Estima costos en guaranies paraguayos. ${INSTRUCCION_RUBROS}`;
 
 type Mensajes = OpenAI.Chat.Completions.ChatCompletionMessageParam[];
 

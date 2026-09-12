@@ -2,6 +2,7 @@ import OpenAI from "openai";
 import { diagnosticoSinIdentificar } from "./types";
 import type { Diagnostico, FuenteWeb, ProveedorWeb } from "./types";
 import type { ModoIA } from "./ia-config";
+import { INSTRUCCION_RUBROS } from "./matching";
 
 function opcionesGeneracion(modelo: string, limite: number) {
   const esfuerzo = /^(gpt-5-nano|gpt-5-mini|gpt-5)(-|$)/.test(modelo)
@@ -143,7 +144,7 @@ async function estructurarDiagnostico(
       {
         role: "system",
         content:
-          "Sos un agente de diagnostico para un marketplace de servicios en Paraguay. Devolve exclusivamente el JSON del contrato pedido. Estima costos en guaranies paraguayos.",
+          `Sos un agente de diagnostico para un marketplace de servicios en Paraguay. Devolve exclusivamente el JSON del contrato pedido. Estima costos en guaranies paraguayos. ${INSTRUCCION_RUBROS}`,
       },
       { role: "user", content: contenido },
     ],

@@ -114,6 +114,21 @@ test("foto no identificada no dispara lecturas adicionales en ningun proveedor",
   }
 });
 
+test("el prompt lleva el vocabulario de la base a los tres proveedores", async () => {
+  const casos = [
+    [config, (body) => body.input.find((m) => m.role === "system").content],
+    [{ proveedor: "anthropic", modelo: "claude-haiku-4-5", apiKey: "sk-ant-test" }, (body) => body.system],
+    [{ proveedor: "gemini", modelo: "gemini-3.1-flash-lite", apiKey: "AIza-test" }, (body) => body.messages.find((m) => m.role === "system").content],
+  ];
+  for (const [configuracion, sistemaDe] of casos) {
+    llamadas.length = 0;
+    await diagnosticar({ texto: "Prueba vocabulario" }, configuracion, "economico");
+    // Sin los rubros de la base cada proveedor elige su sinonimo ("Fontaneria"
+    // por "Plomeria") y scoreFiltrosDuros descarta a todo el dataset.
+    assert.match(sistemaDe(llamadas[0].body), /Plomería/);
+  }
+});
+
 test("429 no genera reintentos automaticos ni se cachea como exito", async () => {
   status = 429;
   const body = { texto: "Caneria prueba cuota", configuracionIA: config };

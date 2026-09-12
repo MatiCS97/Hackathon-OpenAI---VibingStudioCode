@@ -82,17 +82,21 @@ function guardarCache() {
 }
 
 async function generarLote(batch) {
-  while (true) {
-    const response = await gemini.embedDocuments(batch.map(textoPerfil));
-    const esValido =
-      response.length === batch.length &&
-      response.every((embedding) => embedding.length >= embeddingDimensions);
+  const embeddings = [];
+  for (let index = 0; index < batch.length; index += 10) {
+    const grupo = batch.slice(index, index + 10);
+    const resultadoGrupo = await Promise.all(
+      grupo.map((profile) => gemini.embedQuery(textoPerfil(profile))),
+    );
 
-    if (esValido) return response;
+    if (resultadoGrupo.some((embedding) => embedding.length < embeddingDimensions)) {
+      throw new Error("Gemini no devolvio embeddings validos en solicitudes estandar.");
+    }
 
-    console.warn("Gemini limito el lote. Reintentando en un minuto sin perder el checkpoint.");
-    await esperar(minimumBatchIntervalMs);
+    embeddings.push(...resultadoGrupo);
   }
+
+  return embeddings;
 }
 
 function textoPerfil(profile) {

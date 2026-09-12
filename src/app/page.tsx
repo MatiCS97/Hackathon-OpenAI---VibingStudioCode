@@ -196,6 +196,12 @@ export default function Home() {
       ],
       handler: async ({ texto: textoDesdeChat }) =>
         ejecutarDiagnostico(textoDesdeChat),
+      render: ({ status, result }) => (
+        <ChatDiagnostico
+          status={status}
+          resultado={result as OrquestacionResultado | undefined}
+        />
+      ),
     },
     [ejecutarDiagnostico],
   );
@@ -429,6 +435,97 @@ function QuickPrompt({
       <div className="text-sm font-medium text-ink">{title}</div>
       <div className="mt-1 text-sm leading-5 text-steel">{text}</div>
     </button>
+  );
+}
+
+function ChatDiagnostico({
+  status,
+  resultado,
+}: {
+  status: "inProgress" | "executing" | "complete";
+  resultado?: OrquestacionResultado;
+}) {
+  if (status !== "complete" || !resultado) {
+    return (
+      <section className="my-2 border border-cobalt/30 bg-mist p-3 text-ink">
+        <div className="flex items-center gap-3">
+          <span className="relative flex h-7 w-7 items-center justify-center">
+            <span className="sonar-ring absolute h-7 w-7 rounded-full border border-cobalt" />
+            <span
+              className="sonar-ring absolute h-7 w-7 rounded-full border border-cobalt"
+              style={{ animationDelay: "0.8s" }}
+            />
+            <span className="relative h-2 w-2 rounded-full bg-cobalt" />
+          </span>
+          <div>
+            <p className="font-[family-name:var(--font-display)] text-sm font-semibold">
+              Diagnosticando
+            </p>
+            <p className="font-[family-name:var(--font-mono)] text-xs text-steel">
+              Analizando el problema y buscando profesionales.
+            </p>
+          </div>
+        </div>
+      </section>
+    );
+  }
+
+  const { diagnostico, matches } = resultado;
+  return (
+    <section className="my-2 border border-line bg-paper p-3 text-ink">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <p className="font-[family-name:var(--font-mono)] text-[11px] uppercase text-cobalt">
+            Diagnostico listo
+          </p>
+          <h3 className="mt-1 font-[family-name:var(--font-display)] text-base font-semibold">
+            {diagnostico.categoria}
+          </h3>
+          <p className="text-sm text-steel">{diagnostico.sub_especialidad}</p>
+        </div>
+        <span className="border border-line px-2 py-1 font-[family-name:var(--font-mono)] text-[11px] text-steel">
+          {diagnostico.urgencia}
+        </span>
+      </div>
+
+      <div className="mt-3 grid grid-cols-2 gap-px bg-line font-[family-name:var(--font-mono)] text-xs">
+        <div className="bg-paper p-2">
+          <span className="block text-steel">costo</span>
+          {formatMoney(diagnostico.costo_estimado_min)} - {formatMoney(diagnostico.costo_estimado_max)}
+        </div>
+        <div className="bg-paper p-2">
+          <span className="block text-steel">tiempo</span>
+          {diagnostico.horas_estimadas} h estimadas
+        </div>
+      </div>
+
+      <div className="mt-3 border-t border-line pt-3">
+        <p className="font-[family-name:var(--font-mono)] text-[11px] uppercase text-steel">
+          Profesionales recomendados
+        </p>
+        <div className="mt-2 flex flex-col gap-2">
+          {matches.slice(0, 3).map((match) => (
+            <article key={match.profesional_id} className="border-l-2 border-cobalt pl-2">
+              <div className="flex items-baseline justify-between gap-2">
+                <p className="text-sm font-semibold">{match.profesional.nombre}</p>
+                <span className="font-[family-name:var(--font-mono)] text-xs text-cobalt">
+                  {(match.score * 100).toFixed(0)}%
+                </span>
+              </div>
+              <p className="text-xs text-steel">
+                {match.profesional.rubro} · {match.profesional.ubicacion.ciudad}
+              </p>
+              <p className="mt-1 text-xs leading-5 text-ink">{match.explicacion}</p>
+            </article>
+          ))}
+          {matches.length === 0 ? (
+            <p className="text-xs leading-5 text-steel">
+              No encontramos profesionales disponibles para este caso.
+            </p>
+          ) : null}
+        </div>
+      </div>
+    </section>
   );
 }
 

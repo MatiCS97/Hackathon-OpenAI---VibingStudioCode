@@ -1,8 +1,4 @@
-import {
-  buscarProveedoresWeb,
-  diagnosticar,
-  estimarConWebSearch,
-} from "@/lib/diagnostico";
+import { diagnosticar, estimarConWebSearch } from "@/lib/diagnostico";
 import { encontrarMatches, type UbicacionCliente } from "@/lib/matching";
 import type { OrquestacionResultado } from "@/lib/types";
 
@@ -29,28 +25,20 @@ export async function POST(request: Request) {
       diagnosticoInicial,
       ubicacionCliente,
     );
-    // Sin nadie en la base, un precio de referencia no le sirve al cliente: lo que
-    // necesita es un telefono. Las dos busquedas van en paralelo para no sumar
-    // latencia una arriba de la otra.
-    // Las dos son mejoras sobre el diagnostico, no el diagnostico: si una falla
-    // o tarda, el cliente igual tiene que recibir lo que ya se calculo. Sin el
-    // techo de tiempo una busqueda lenta deja la pantalla cargando mas de un
-    // minuto por datos que son un extra.
-    const [estimacionWeb, proveedoresWeb] = await Promise.all([
-      resultadoMatching.fallback_web
-        ? conTecho(estimarConWebSearch(diagnosticoInicial), null)
-        : null,
-      resultadoMatching.matches.length === 0
-        ? conTecho(buscarProveedoresWeb(diagnosticoInicial, ubicacionCliente), [])
-        : [],
-    ]);
+    // La estimacion web corrige el costo del propio diagnostico, asi que no puede
+    // diferirse; el techo evita que una busqueda lenta bloquee la pantalla. Los
+    // telefonos de proveedores viven en /api/proveedores por lo contrario: son un
+    // extra y no vale la pena hacer esperar el diagnostico por ellos.
+    const estimacionWeb = resultadoMatching.fallback_web
+      ? await conTecho(estimarConWebSearch(diagnosticoInicial), null)
+      : null;
 
     const resultado: OrquestacionResultado = {
       diagnostico: estimacionWeb?.diagnostico ?? diagnosticoInicial,
       matches: resultadoMatching.matches,
       fallback_web: resultadoMatching.fallback_web,
       fuentes_web: estimacionWeb?.fuentes ?? [],
-      proveedores_web: proveedoresWeb,
+      proveedores_web: [],
     };
 
     return Response.json(resultado);

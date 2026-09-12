@@ -136,6 +136,8 @@ export default function Home() {
   const [error, setError] = useState<string | null>(null);
   const [ayudaAbierta, setAyudaAbierta] = useState(false);
   const [enfocado, setEnfocado] = useState<string | null>(null);
+  const [proveedores, setProveedores] = useState<ProveedorWeb[]>([]);
+  const [buscandoProveedores, setBuscandoProveedores] = useState(false);
   const { messages, sendMessage, isLoading: chatLoading } = useCopilotChatInternal();
 
   const matches = resultado?.matches ?? [];
@@ -231,6 +233,38 @@ export default function Home() {
     },
     [imagenBase64, texto, ubicacion],
   );
+
+  // El diagnostico ya esta en pantalla; los telefonos se piden aparte y se
+  // suman cuando llegan, sin hacer esperar al resto.
+  useEffect(() => {
+    if (!resultado || resultado.matches.length > 0) {
+      setProveedores([]);
+      return;
+    }
+
+    let cancelado = false;
+    setBuscandoProveedores(true);
+
+    fetch("/api/proveedores", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ diagnostico: resultado.diagnostico, ubicacion }),
+    })
+      .then((respuesta) => respuesta.json())
+      .then((datos: { proveedores?: ProveedorWeb[] }) => {
+        if (!cancelado) setProveedores(datos.proveedores ?? []);
+      })
+      .catch(() => {
+        if (!cancelado) setProveedores([]);
+      })
+      .finally(() => {
+        if (!cancelado) setBuscandoProveedores(false);
+      });
+
+    return () => {
+      cancelado = true;
+    };
+  }, [resultado, ubicacion]);
 
   const solicitarUbicacion = () =>
     new Promise<UbicacionCliente | undefined>((resolve) => {
@@ -502,8 +536,11 @@ export default function Home() {
             />
           ) : (
             <div className="flex flex-col gap-4">
-              {resultado && resultado.proveedores_web.length > 0 ? (
-                <ProveedoresWeb proveedores={resultado.proveedores_web} />
+              {resultado && (buscandoProveedores || proveedores.length > 0) ? (
+                <ProveedoresWeb
+                  proveedores={proveedores}
+                  buscando={buscandoProveedores}
+                />
               ) : null}
               <PanelConversacion
                 mensajes={messages}
@@ -909,7 +946,13 @@ function IconoCerrar() {
   );
 }
 
-function ProveedoresWeb({ proveedores }: { proveedores: ProveedorWeb[] }) {
+function ProveedoresWeb({
+  proveedores,
+  buscando,
+}: {
+  proveedores: ProveedorWeb[];
+  buscando: boolean;
+}) {
   return (
     <section className="border border-line bg-paper">
       <div className="border-b border-line p-4">
@@ -917,10 +960,18 @@ function ProveedoresWeb({ proveedores }: { proveedores: ProveedorWeb[] }) {
           Nadie registrado, pero estos atienden
         </h2>
         <p className="mt-1 text-sm leading-6 text-steel">
-          No hay profesionales de este rubro en la base todavía, así que los
-          busqué en la web. Podés llamarlos directo.
+          {buscando
+            ? "No hay profesionales de este rubro en la base todavía. Estoy buscando en la web a quién podés llamar."
+            : "No hay profesionales de este rubro en la base todavía, así que los busqué en la web. Podés llamarlos directo."}
         </p>
       </div>
+
+      {buscando && proveedores.length === 0 ? (
+        <div className="flex flex-col gap-2 p-4">
+          <div className="h-10 animate-pulse bg-mist" />
+          <div className="h-10 animate-pulse bg-mist" />
+        </div>
+      ) : null}
 
       <ul className="flex flex-col">
         {proveedores.map((proveedor) => (

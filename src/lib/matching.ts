@@ -41,12 +41,19 @@ export async function encontrarMatches(
   matches: MatchProfesional[];
   fallback_web: boolean;
 }> {
-  if (!process.env.GEMINI_API_KEY) {
-    throw new Error("Falta GEMINI_API_KEY en el entorno.");
+  const perfilEmbeddings = await cargarOGenerarEmbeddings();
+  let queryEmbedding: number[] | undefined;
+
+  try {
+    queryEmbedding = await embedTexto(textoDiagnostico(diagnostico));
+  } catch (error) {
+    if (!esErrorDeCuotaGemini(error)) throw error;
+
+    console.warn(
+      "Gemini no tiene cuota disponible. Se usara matching local hasta que se restablezca.",
+    );
   }
 
-  const queryEmbedding = await embedTexto(textoDiagnostico(diagnostico));
-  const perfilEmbeddings = await cargarOGenerarEmbeddings();
   const perfilPorId = new Map(profesionales.map((perfil) => [perfil.id, perfil]));
 
   const candidatos = perfilEmbeddings
@@ -60,7 +67,10 @@ export async function encontrarMatches(
       const scoreUbicacion = ubicacionCliente
         ? factorUbicacion(profesional, ubicacionCliente)
         : 1;
-      const score = cosineSimilarity(queryEmbedding, item.embedding) * hardScore * scoreUbicacion;
+      const similitud = queryEmbedding
+        ? cosineSimilarity(queryEmbedding, item.embedding)
+        : scoreTextoLocal(profesional, diagnostico);
+      const score = similitud * hardScore * scoreUbicacion;
       return { profesional, score };
     })
     .filter((item): item is { profesional: Profesional; score: number } => item !== null)
@@ -76,7 +86,9 @@ export async function encontrarMatches(
 
   return {
     matches,
-    fallback_web: (matches[0]?.score ?? 0) < MATCH_THRESHOLD,
+    fallback_web: queryEmbedding
+      ? (matches[0]?.score ?? 0) < MATCH_THRESHOLD
+      : false,
   };
 }
 
@@ -201,6 +213,34 @@ function textoPerfil(profesional: Profesional) {
     profesional.certificaciones.map(normalizarTexto).join(", "),
     normalizarTexto(profesional.ubicacion.ciudad),
   ].join(". ");
+}
+
+function scoreTextoLocal(profesional: Profesional, diagnostico: Diagnostico) {
+  const palabrasDiagnostico = new Set(
+    [diagnostico.categoria, diagnostico.sub_especialidad]
+      .flatMap((texto) => normalizarTexto(texto).split(/[^a-z0-9]+/))
+      .filter((palabra) => palabra.length >= 3),
+  );
+  const palabrasPerfil = new Set(
+    textoPerfil(profesional)
+      .split(/[^a-z0-9]+/)
+      .filter((palabra) => palabra.length >= 3),
+  );
+  const coincidencias = [...palabrasDiagnostico].filter((palabra) =>
+    palabrasPerfil.has(palabra),
+  ).length;
+
+  // Los filtros duros ya validaron rubro/especialidad; este ordena los empates sin API.
+  return Math.min(0.9, 0.6 + coincidencias / Math.max(palabrasDiagnostico.size, 1) * 0.3);
+}
+
+function esErrorDeCuotaGemini(error: unknown) {
+  const mensaje = error instanceof Error ? error.message : String(error);
+  return (
+    mensaje.includes("Quota exceeded") ||
+    mensaje.includes("Too Many Requests") ||
+    mensaje.includes("Falta GEMINI_API_KEY")
+  );
 }
 
 function normalizarTexto(texto: string) {

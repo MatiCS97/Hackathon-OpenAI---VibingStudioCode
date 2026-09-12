@@ -194,12 +194,18 @@ export default function Home() {
           required: true,
         },
       ],
-      handler: async ({ texto: textoDesdeChat }) =>
-        ejecutarDiagnostico(textoDesdeChat),
+      handler: async ({ texto: textoDesdeChat }) => {
+        try {
+          return await ejecutarDiagnostico(textoDesdeChat);
+        } catch {
+          return undefined;
+        }
+      },
       render: ({ status, result }) => (
         <ChatDiagnostico
           status={status}
-          resultado={result as OrquestacionResultado | undefined}
+          resultado={esResultadoOrquestacion(result) ? result : undefined}
+          fallido={status === "complete" && result !== undefined && !esResultadoOrquestacion(result)}
         />
       ),
     },
@@ -441,10 +447,20 @@ function QuickPrompt({
 function ChatDiagnostico({
   status,
   resultado,
+  fallido = false,
 }: {
   status: "inProgress" | "executing" | "complete";
   resultado?: OrquestacionResultado;
+  fallido?: boolean;
 }) {
+  if (fallido) {
+    return (
+      <section className="my-2 border border-[#e2b6ac] bg-[#fff2ef] p-3 text-sm text-[#8b2f21]">
+        No se pudo completar el diagnostico. Intenta nuevamente en unos minutos.
+      </section>
+    );
+  }
+
   if (status !== "complete" || !resultado) {
     return (
       <section className="my-2 border border-cobalt/30 bg-mist p-3 text-ink">
@@ -680,6 +696,18 @@ function isErrorPayload(payload: unknown): payload is { error: string } {
     payload !== null &&
     "error" in payload &&
     typeof payload.error === "string"
+  );
+}
+
+function esResultadoOrquestacion(payload: unknown): payload is OrquestacionResultado {
+  if (typeof payload !== "object" || payload === null) return false;
+
+  const resultado = payload as Partial<OrquestacionResultado>;
+  return (
+    typeof resultado.diagnostico === "object" &&
+    resultado.diagnostico !== null &&
+    typeof resultado.diagnostico.categoria === "string" &&
+    Array.isArray(resultado.matches)
   );
 }
 

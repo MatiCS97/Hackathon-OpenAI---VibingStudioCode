@@ -120,9 +120,11 @@ async function estructurarDiagnostico(texto: string, imagen: ImagenNormalizada |
   return validarDiagnostico(block.input);
 }
 
+// Describir una foto no exige el razonamiento de Sonnet, y esto solo corre
+// cuando la primera clasificacion ya fallo.
 async function describirImagen(imagen: ImagenNormalizada) {
   const message = await anthropic.messages.create({
-    model: "claude-sonnet-5",
+    model: "claude-haiku-4-5",
     max_tokens: 400,
     system:
       "Describi lo que ves en la foto: materiales, instalaciones, daño visible, humedad, oxido, roturas, y el ambiente. No clasifiques ni des un diagnostico, solo descripcion concreta. Si la foto es ilegible decilo en una linea.",
@@ -163,7 +165,9 @@ export async function estimarConWebSearch(
 
   const busqueda = await anthropic.messages.create({
     model: "claude-sonnet-5",
-    max_tokens: 4000,
+    // Es un resumen de precios en un parrafo, no un documento: 4000 sobraba de
+    // margen sin necesidad, sin haber tocado nunca el techo.
+    max_tokens: 1200,
     system:
       "Sos un agente de diagnostico para un marketplace de servicios en Paraguay. Busca en la web precios y tiempos actuales para el trabajo descrito y resumi los numeros que encuentres, en guaranies paraguayos.",
     messages: [
@@ -188,9 +192,11 @@ export async function estimarConWebSearch(
     return { diagnostico, fuentes };
   }
 
+  // Copiar 3 campos numericos a un schema ya definido es extraccion, no
+  // diagnostico: no necesita el modelo que interpreto la foto o el texto.
   const estructurado = await anthropic.messages.create({
-    model: "claude-sonnet-5",
-    max_tokens: 2000,
+    model: "claude-haiku-4-5",
+    max_tokens: 700,
     system:
       "Actualiza solamente costo_estimado_min, costo_estimado_max y horas_estimadas segun los hallazgos de la busqueda web. Manten el resto del contrato igual. Responde usando la tool registrar_diagnostico.",
     messages: [
@@ -324,7 +330,8 @@ export async function buscarProveedoresWeb(
 
   const busqueda = await anthropic.messages.create({
     model: "claude-sonnet-5",
-    max_tokens: 4000,
+    // Una lista corta de 3-4 negocios no necesita 4000 tokens de margen.
+    max_tokens: 1200,
     system:
       "Busca negocios reales que presten el servicio pedido y que atiendan en Paraguay. Prioriza los que publican telefono. Enumera cada uno con su nombre, telefono, direccion y sitio o perfil, tal como figuran en la fuente. No inventes datos de contacto.",
     messages: [
@@ -352,9 +359,11 @@ export async function buscarProveedoresWeb(
 
   if (!hallazgos) return [];
 
+  // Misma logica que en estimarConWebSearch: extraer campos de un texto ya
+  // encontrado es trabajo de Haiku, no de Sonnet.
   const estructurado = await anthropic.messages.create({
-    model: "claude-sonnet-5",
-    max_tokens: 2000,
+    model: "claude-haiku-4-5",
+    max_tokens: 700,
     system:
       "Extrae los negocios mencionados usando la tool registrar_proveedores. Copia telefono, direccion y url solo si aparecen en el texto; si falta alguno, omiti ese campo. Maximo 4 proveedores.",
     messages: [

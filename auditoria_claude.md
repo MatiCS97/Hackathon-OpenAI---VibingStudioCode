@@ -72,6 +72,33 @@ Revisado: commit `8e1cd2f` "Implement diagnostic matching pipeline" (rama `main`
 - No agregar frameworks de testing pesados — un `assert`/self-check simple alcanza si se agrega algo de validación.
 - No regenerar `data/profiles.json` salvo que se decida recortar el dataset (punto 2), y si se hace, avisar en el chat porque afecta a todo el equipo.
 
+## Aviso de coordinación de ramas (leer antes de seguir)
+
+Fecha: 2026-09-12
+
+Confirmado el estado de ramas remotas:
+
+- `main` → `cb1d8aa` (incluye esta auditoría, Ronda 2).
+- `diagnostico` (rama de Matias/Codex) → `8e1cd2f`, ya tiene TODO el pipeline
+  (`diagnostico.ts`, `matching.ts`, `explicabilidad.ts`, `orchestrate/route.ts`,
+  `page.tsx`). Está al día con `main` menos el commit de esta auditoría.
+- `Matching` (rama del compañero) → `95eea0f`, **todavía sin cambios propios**.
+  El compañero no pusheó nada nuevo todavía.
+
+**Importante para Codex**: como `diagnostico` ya implementó el matching completo
+(Paso 2) además del diagnóstico (Paso 1), cuando el compañero pushee a `Matching`
+va a haber conflicto/duplicación casi seguro en `src/lib/matching.ts` y
+`src/lib/types.ts`. Antes de seguir sumando features nuevas en `diagnostico`:
+
+1. Aplicar primero los 3 fixes de la Ronda 2 (tildes, embeddings pre-generados,
+   try/catch en cache) en `diagnostico`, y avisar en el chat del equipo que
+   `matching.ts` ya está resuelto en esta rama — así el compañero no lo reescribe
+   desde cero en `Matching` y solo se enfoca en lo que falte (demo host app, UI,
+   o lo que se reparta).
+2. Cuando el compañero pushee a `Matching`, la integración a `main` la va a
+   necesitar hacer alguien manualmente (probablemente Matias) comparando ambas
+   ramas — avisar acá cuando esté pusheado para que se audite el merge.
+
 ## Siguiente auditoría
 
 Voy a releer el repo después del próximo commit de Codex y actualizar este archivo con una Ronda 3.

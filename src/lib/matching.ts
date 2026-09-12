@@ -180,8 +180,10 @@ function scoreFiltrosDuros(profesional: Profesional, diagnostico: Diagnostico) {
     });
 
   if (!rubroCompatible && !especialidadCompatible) return 0;
-  if (!certificacionCompatible && diagnostico.urgencia === "alta") return 0;
 
+  // La certificacion ordena, no excluye: en una urgencia el cliente necesita a
+  // alguien ya, y dejar fuera a los no certificados podia devolver cero opciones.
+  // Los certificados igual quedan arriba por el factor.
   return certificacionCompatible ? 1 : 0.82;
 }
 

@@ -39,6 +39,39 @@ Auditor: Claude (Orchestator)
 - No agregar autenticación, base de datos real, ni testing framework pesado.
 - No tocar `scripts/generate_profiles.py` ni regenerar el dataset salvo que cambie el contrato de perfil.
 
+## Ronda 2 — para Codex
+
+Fecha: 2026-09-12
+Revisado: commit `8e1cd2f` "Implement diagnostic matching pipeline" (rama `main`).
+
+### Lo que quedó bien (no tocar)
+
+- `src/lib/types.ts`, `diagnostico.ts`, `matching.ts`, `explicabilidad.ts`, `src/app/api/orchestrate/route.ts`: siguen el contrato de `CLAUDE.md` al pie de la letra. Tool-forced JSON en Claude, cache de embeddings en disco, filtros duros, fallback web por umbral — todo como se pidió en la Ronda 1.
+- `page.tsx`: UI completa de texto/foto/mic + cards de diagnóstico y matches, conectado a `useCopilotAction`/`useCopilotReadable`. Buen trabajo.
+
+### Bugs a corregir (prioridad alta)
+
+1. **Match por substring falla con tildes.** `data/profiles.json` tiene acentos (`iluminación`, `construcción`, `albañilería`), pero el diagnóstico de Claude puede devolver texto sin tildes o con variaciones. `scoreFiltrosDuros` en `matching.ts` compara con `.includes()` directo → un desajuste de tilde hace que un match válido dé `hardScore = 0` y desaparezca, aunque el embedding semántico sea perfecto.
+   - Fix: normalizar (quitar diacríticos) antes de comparar en `scoreFiltrosDuros`, `textoDiagnostico` y `textoPerfil`. Algo simple: `texto.normalize("NFD").replace(/[̀-ͯ]/g, "")` antes de `toLocaleLowerCase`.
+
+2. **Generación de embeddings on-the-fly es riesgo para la demo en vivo.** `cargarOGenerarEmbeddings()` en `matching.ts` genera embeddings de los 20000 perfiles en el primer request si no existe `data/profile-embeddings.json`. Con Voyage en tier gratis y 157 batches secuenciales, el primer diagnóstico en la demo podría tardar minutos o pegar contra rate limit, justo cuando hay que grabar el video.
+   - Fix: correr la generación **ahora, de antemano**, como script (`scripts/generate_profile_embeddings.ts` o similar, ejecutado una vez con `VOYAGE_API_KEY` local) y **commitear** `data/profile-embeddings.json` al repo. Así el flujo en vivo solo hace 1 embedding (el del diagnóstico), no 20000.
+   - Si el archivo pesa mucho para git, evaluar recortar el dataset de demo a ~1000-2000 perfiles en vez de 20000 (más que suficiente para la demo, y no rompe el contrato).
+
+3. **Escritura de cache puede tirar error en entorno serverless.** `writeFile(EMBEDDINGS_PATH, ...)` en `matching.ts` asume filesystem escribible. Si se despliega en Vercel (serverless, fs efímero/read-only fuera de `/tmp`), esto puede tirar excepción y romper todo el endpoint. Envolver en try/catch y solo loguear un warning si falla — no bloquear la respuesta al usuario. (Se vuelve moot si se resuelve el punto 2 con el archivo pre-generado y commiteado.)
+
+### Pendiente del roadmap (falta empezar)
+
+4. **Demo host app** (sección 5 de `CLAUDE.md`): página tipo "marketplace genérico" que embeba el agente, mostrando el caso de uso real. Todavía no existe — es lo último antes de grabar el video.
+
+5. **README de arranque para el equipo**: agregar al `README.md` los pasos para correr localmente (`npm install`, copiar `.env.example` a `.env.local`, cómo generar embeddings si hace falta, `npm run dev`).
+
+### Qué NO tocar
+
+- No cambiar el contrato de `types.ts`.
+- No agregar frameworks de testing pesados — un `assert`/self-check simple alcanza si se agrega algo de validación.
+- No regenerar `data/profiles.json` salvo que se decida recortar el dataset (punto 2), y si se hace, avisar en el chat porque afecta a todo el equipo.
+
 ## Siguiente auditoría
 
-Voy a releer el repo después del próximo commit de ChatGPT y actualizar este archivo con una Ronda 2, marcando qué de esta lista quedó hecho, qué falta, y nuevos hallazgos (bugs, desvíos del contrato, etc).
+Voy a releer el repo después del próximo commit de Codex y actualizar este archivo con una Ronda 3.

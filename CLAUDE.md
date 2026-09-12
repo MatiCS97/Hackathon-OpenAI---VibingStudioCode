@@ -106,9 +106,21 @@ disponible`.
   "fallback_web": false,
   "fuentes_web": [
     { "titulo": "Título de la página encontrada", "url": "https://..." }
+  ],
+  "proveedores_web": [
+    {
+      "nombre": "Gomería 24hs Asunción",
+      "telefono": "+595 981 123456",
+      "direccion": "Av. Eusebio Ayala 1234",
+      "url": "https://..."
+    }
   ]
 }
 ```
+
+`proveedores_web` se llena SOLO cuando `matches` viene vacío: si la base local no
+tiene a nadie del rubro, se busca en la web un negocio real al que llamar. Cada
+campo salvo `nombre` puede venir en `null` cuando la fuente no lo publica.
 
 `fuentes_web` se llena SOLO cuando el fallback de `web_search` realmente devolvió
 resultados (y ahí `diagnostico.fuente_estimacion` pasa a `"web_search"`). Si el

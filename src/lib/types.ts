@@ -45,6 +45,15 @@ export function diagnosticoSinIdentificar(diagnostico: Diagnostico) {
   );
 }
 
+// Cuando la base local no tiene a nadie, lo util no es una nota de precios sino
+// un lugar al que llamar ahora. Esto es lo que se busca en la web en ese caso.
+export interface ProveedorWeb {
+  nombre: string;
+  telefono: string | null;
+  direccion: string | null;
+  url: string | null;
+}
+
 export interface FuenteWeb {
   titulo: string;
   url: string;
@@ -55,4 +64,5 @@ export interface OrquestacionResultado {
   matches: MatchProfesional[];
   fallback_web: boolean;
   fuentes_web: FuenteWeb[];
+  proveedores_web: ProveedorWeb[];
 }

@@ -1,4 +1,8 @@
-import { diagnosticar, estimarConWebSearch } from "@/lib/diagnostico";
+import {
+  buscarProveedoresWeb,
+  diagnosticar,
+  estimarConWebSearch,
+} from "@/lib/diagnostico";
 import { encontrarMatches, type UbicacionCliente } from "@/lib/matching";
 import type { OrquestacionResultado } from "@/lib/types";
 
@@ -18,19 +22,29 @@ export async function POST(request: Request) {
     }
 
     const diagnosticoInicial = await diagnosticar(body);
+    const ubicacionCliente = esUbicacionValida(body.ubicacion)
+      ? body.ubicacion
+      : undefined;
     const resultadoMatching = await encontrarMatches(
       diagnosticoInicial,
-      esUbicacionValida(body.ubicacion) ? body.ubicacion : undefined,
+      ubicacionCliente,
     );
-    const estimacionWeb = resultadoMatching.fallback_web
-      ? await estimarConWebSearch(diagnosticoInicial)
-      : null;
+    // Sin nadie en la base, un precio de referencia no le sirve al cliente: lo que
+    // necesita es un telefono. Las dos busquedas van en paralelo para no sumar
+    // latencia una arriba de la otra.
+    const [estimacionWeb, proveedoresWeb] = await Promise.all([
+      resultadoMatching.fallback_web ? estimarConWebSearch(diagnosticoInicial) : null,
+      resultadoMatching.matches.length === 0
+        ? buscarProveedoresWeb(diagnosticoInicial, ubicacionCliente)
+        : [],
+    ]);
 
     const resultado: OrquestacionResultado = {
       diagnostico: estimacionWeb?.diagnostico ?? diagnosticoInicial,
       matches: resultadoMatching.matches,
       fallback_web: resultadoMatching.fallback_web,
       fuentes_web: estimacionWeb?.fuentes ?? [],
+      proveedores_web: proveedoresWeb,
     };
 
     return Response.json(resultado);

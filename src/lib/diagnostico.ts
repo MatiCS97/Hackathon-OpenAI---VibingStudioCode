@@ -6,7 +6,7 @@ import type {
   ToolUseBlock,
 } from "@anthropic-ai/sdk/resources/messages/messages";
 import { diagnosticoSinIdentificar } from "./types";
-import type { Diagnostico, FuenteWeb } from "./types";
+import type { Diagnostico, FuenteWeb, ProveedorWeb } from "./types";
 
 const DIAGNOSTICO_SCHEMA: Tool.InputSchema = {
   type: "object",
@@ -285,4 +285,120 @@ function normalizarUrgencia(value: unknown): Diagnostico["urgencia"] {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
+}
+
+const PROVEEDORES_SCHEMA: Tool.InputSchema = {
+  type: "object",
+  additionalProperties: false,
+  properties: {
+    proveedores: {
+      type: "array",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          nombre: { type: "string" },
+          telefono: { type: "string" },
+          direccion: { type: "string" },
+          url: { type: "string" },
+        },
+        required: ["nombre"],
+      },
+    },
+  },
+  required: ["proveedores"],
+};
+
+// Cuando el matching local queda vacio, decirle al cliente "no hay nadie" no lo
+// ayuda: lo que necesita es un telefono al que llamar. Dos llamadas por lo mismo
+// que estimarConWebSearch: con tool_choice forzado el modelo nunca llega a buscar.
+export async function buscarProveedoresWeb(
+  diagnostico: Diagnostico,
+  ubicacion?: { lat: number; lon: number },
+): Promise<ProveedorWeb[]> {
+  if (!process.env.ANTHROPIC_API_KEY) return [];
+
+  const cerca = ubicacion
+    ? `El cliente esta en las coordenadas ${ubicacion.lat.toFixed(4)}, ${ubicacion.lon.toFixed(4)} (Paraguay).`
+    : "El cliente esta en Paraguay, zona de Asuncion y Gran Asuncion.";
+
+  const busqueda = await anthropic.messages.create({
+    model: "claude-sonnet-5",
+    max_tokens: 4000,
+    system:
+      "Busca negocios reales que presten el servicio pedido y que atiendan en Paraguay. Prioriza los que publican telefono. Enumera cada uno con su nombre, telefono, direccion y sitio o perfil, tal como figuran en la fuente. No inventes datos de contacto.",
+    messages: [
+      {
+        role: "user",
+        content: `Necesito contactar a alguien que haga: ${diagnostico.categoria} - ${diagnostico.sub_especialidad}. ${cerca} Urgencia ${diagnostico.urgencia}. Busca negocios con telefono publicado y listalos.`,
+      },
+    ],
+    tools: [
+      {
+        type: "web_search_20260209",
+        name: "web_search",
+        max_uses: 4,
+        user_location: {
+          type: "approximate",
+          country: "PY",
+          timezone: "America/Asuncion",
+        },
+      },
+    ],
+  });
+
+  const hallazgos = busqueda.content
+    .filter((item): item is TextBlock => item.type === "text")
+    .map((item) => item.text)
+    .join("\n")
+    .trim();
+
+  if (!hallazgos) return [];
+
+  const estructurado = await anthropic.messages.create({
+    model: "claude-sonnet-5",
+    max_tokens: 2000,
+    system:
+      "Extrae los negocios mencionados usando la tool registrar_proveedores. Copia telefono, direccion y url solo si aparecen en el texto; si falta alguno, omiti ese campo. Maximo 4 proveedores.",
+    messages: [
+      {
+        role: "user",
+        content: `Resultados de la busqueda:\n${hallazgos}\n\nExtrae los negocios con sus datos de contacto.`,
+      },
+    ],
+    tools: [
+      {
+        name: "registrar_proveedores",
+        description: "Devuelve los negocios encontrados con sus datos de contacto.",
+        input_schema: PROVEEDORES_SCHEMA,
+      },
+    ],
+    tool_choice: { type: "tool", name: "registrar_proveedores" },
+  });
+
+  const block = estructurado.content.find(
+    (item): item is ToolUseBlock =>
+      item.type === "tool_use" && item.name === "registrar_proveedores",
+  );
+
+  if (!block || !isRecord(block.input)) return [];
+
+  const crudos = block.input.proveedores;
+  if (!Array.isArray(crudos)) return [];
+
+  return crudos
+    .filter(isRecord)
+    .map((proveedor) => ({
+      nombre: String(proveedor.nombre ?? "").trim(),
+      telefono: textoOpcional(proveedor.telefono),
+      direccion: textoOpcional(proveedor.direccion),
+      url: textoOpcional(proveedor.url),
+    }))
+    .filter((proveedor) => proveedor.nombre.length > 0)
+    .slice(0, 4);
+}
+
+function textoOpcional(valor: unknown) {
+  const texto = typeof valor === "string" ? valor.trim() : "";
+  return texto.length > 0 ? texto : null;
 }

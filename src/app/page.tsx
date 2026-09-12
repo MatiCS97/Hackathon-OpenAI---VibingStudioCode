@@ -11,7 +11,7 @@ import {
 import { MapaProfesionales } from "@/components/mapa-profesionales";
 import type { UbicacionCliente } from "@/lib/matching";
 import { diagnosticoSinIdentificar } from "@/lib/types";
-import type { OrquestacionResultado } from "@/lib/types";
+import type { OrquestacionResultado, ProveedorWeb } from "@/lib/types";
 
 type SpeechRecognitionResultLike = {
   readonly length: number;
@@ -58,12 +58,21 @@ const PREFIJO_DIAGNOSTICO =
   "Usa la accion diagnosticarProblema para diagnosticar este problema: ";
 const MENSAJE_SOLO_FOTO =
   "Usa la accion diagnosticarProblema con texto 'Diagnostica el problema de la foto adjunta'. El cliente subio una foto y no escribio descripcion.";
+// La pantalla ya muestra diagnostico, mapa y telefonos: repetirlos en prosa solo
+// alarga la espera. Va en el mensaje y no en las instrucciones del provider
+// porque asi llega al modelo sin depender de como CopilotKit arme el contexto.
+const SUFIJO_BREVEDAD =
+  " Cuando termines, responde en una sola frase corta, texto plano, sin markdown ni emojis, sin repetir el costo, el tiempo ni los nombres que ya se ven en pantalla.";
 
 function textoVisible(contenido: string) {
-  if (contenido === MENSAJE_SOLO_FOTO) return "Subi una foto para diagnosticar.";
-  return contenido.startsWith(PREFIJO_DIAGNOSTICO)
-    ? contenido.slice(PREFIJO_DIAGNOSTICO.length)
+  const sinSufijo = contenido.endsWith(SUFIJO_BREVEDAD)
+    ? contenido.slice(0, -SUFIJO_BREVEDAD.length)
     : contenido;
+
+  if (sinSufijo === MENSAJE_SOLO_FOTO) return "Subi una foto para diagnosticar.";
+  return sinSufijo.startsWith(PREFIJO_DIAGNOSTICO)
+    ? sinSufijo.slice(PREFIJO_DIAGNOSTICO.length)
+    : sinSufijo;
 }
 
 // Al modelo se le pide texto plano, pero cuando igual manda markdown el HTML
@@ -267,7 +276,7 @@ export default function Home() {
     await sendMessage({
       id: crypto.randomUUID(),
       role: "user",
-      content: mensaje ? `${PREFIJO_DIAGNOSTICO}${mensaje}` : MENSAJE_SOLO_FOTO,
+      content: `${mensaje ? `${PREFIJO_DIAGNOSTICO}${mensaje}` : MENSAJE_SOLO_FOTO}${SUFIJO_BREVEDAD}`,
     });
   };
 
@@ -492,15 +501,20 @@ export default function Home() {
               onPedirAyuda={() => setAyudaAbierta(true)}
             />
           ) : (
-            <PanelConversacion
-              mensajes={messages}
-              cargando={loading || chatLoading}
-              vacio={
-                resultado
-                  ? "No encontre profesionales para este caso. Contame un poco mas y sigo buscando."
-                  : "Contanos el problema y ServicIA encuentra a quien puede resolverlo."
-              }
-            />
+            <div className="flex flex-col gap-4">
+              {resultado && resultado.proveedores_web.length > 0 ? (
+                <ProveedoresWeb proveedores={resultado.proveedores_web} />
+              ) : null}
+              <PanelConversacion
+                mensajes={messages}
+                cargando={loading || chatLoading}
+                vacio={
+                  resultado
+                    ? "No encontre profesionales para este caso. Contame un poco mas y sigo buscando."
+                    : "Contanos el problema y ServicIA encuentra a quien puede resolverlo."
+                }
+              />
+            </div>
           )}
         </section>
       </main>
@@ -891,6 +905,73 @@ function IconoCerrar() {
   return (
     <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
       <path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" strokeWidth="1.4" />
+    </svg>
+  );
+}
+
+function ProveedoresWeb({ proveedores }: { proveedores: ProveedorWeb[] }) {
+  return (
+    <section className="border border-line bg-paper">
+      <div className="border-b border-line p-4">
+        <h2 className="font-[family-name:var(--font-display)] text-lg font-semibold">
+          Nadie registrado, pero estos atienden
+        </h2>
+        <p className="mt-1 text-sm leading-6 text-steel">
+          No hay profesionales de este rubro en la base todavía, así que los
+          busqué en la web. Podés llamarlos directo.
+        </p>
+      </div>
+
+      <ul className="flex flex-col">
+        {proveedores.map((proveedor) => (
+          <li
+            key={`${proveedor.nombre}-${proveedor.telefono ?? proveedor.url ?? ""}`}
+            className="border-b border-line p-4 last:border-b-0"
+          >
+            <p className="font-medium text-ink">{proveedor.nombre}</p>
+            {proveedor.direccion ? (
+              <p className="mt-1 text-sm leading-5 text-steel">
+                {proveedor.direccion}
+              </p>
+            ) : null}
+
+            <div className="mt-2 flex flex-wrap items-center gap-4">
+              {proveedor.telefono ? (
+                <a
+                  href={`tel:${proveedor.telefono.replace(/[^+\d]/g, "")}`}
+                  className="flex items-center gap-2 font-[family-name:var(--font-mono)] text-sm font-medium text-cobalt underline decoration-cobalt/30 underline-offset-4 transition hover:decoration-cobalt"
+                >
+                  <IconoTelefono />
+                  {proveedor.telefono}
+                </a>
+              ) : null}
+              {proveedor.url ? (
+                <a
+                  href={proveedor.url}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="text-sm text-steel underline decoration-steel/30 underline-offset-4 transition hover:text-ink hover:decoration-ink"
+                >
+                  Ver sitio
+                </a>
+              ) : null}
+            </div>
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
+function IconoTelefono() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+      <path
+        d="M5.2 2.5H3.1c-.6 0-1.1.5-1 1.1.2 2.4 1.2 4.7 2.9 6.4 1.7 1.7 4 2.7 6.4 2.9.6.1 1.1-.4 1.1-1v-2.1c0-.5-.3-.9-.8-1l-1.8-.4c-.4-.1-.8.1-1 .4l-.6.9A8.4 8.4 0 0 1 5.3 6.7l.9-.6c.3-.2.5-.6.4-1l-.4-1.8c-.1-.5-.5-.8-1-.8Z"
+        stroke="currentColor"
+        strokeWidth="1.2"
+        strokeLinejoin="round"
+      />
     </svg>
   );
 }

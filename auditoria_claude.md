@@ -75,6 +75,51 @@ explicación)").
   use el chat con texto, el resultado se vea ahí mismo.
 - No tocar `matching.ts`, el script de embeddings, ni `package.json`.
 
+## Unificar el textarea principal con el chat de CopilotKit (headless)
+
+Fecha: 2026-09-12
+
+Ya está hecho lo de la sección anterior (`render` con `ChatDiagnostico` en
+`diagnosticarProblema` — buen trabajo). El siguiente paso es sacar la
+duplicación que queda entre dos superficies separadas:
+
+- **Camino 1 (hoy):** textarea principal + botón "Diagnosticar" → `fetch`
+  directo a `/api/orchestrate`, resultado en `SignalPanel`/`Matches`.
+- **Camino 2 (hoy):** `CopilotPopup` (burbuja flotante) → chat de Claude →
+  puede llamar `diagnosticarProblema` → resultado en `ChatDiagnostico` dentro
+  del chat.
+
+Son dos interfaces separadas para lo mismo. **Instrucción**: unificarlas en
+una sola, usando el modo **headless** de CopilotKit (`useCopilotChat` de
+`@copilotkit/react-core`) en vez de `CopilotPopup`:
+
+1. Sacar `<CopilotPopup>` de `page.tsx`.
+2. Usar `useCopilotChat()` para manejar el envío de mensajes: el textarea
+   principal (el que ya tiene el diseño ServicIA) pasa a ser el input real del
+   chat — al mandar el mensaje, usar el método que expone el hook para
+   agregar el mensaje del usuario y dejar que CopilotKit dispare
+   `diagnosticarProblema` como ya lo hace ahora.
+3. El resultado se muestra con el mismo `ChatDiagnostico` que ya existe,
+   ahora renderizado inline en el flujo principal de la página (donde hoy
+   están `SignalPanel`/`Matches`) en vez de (o además de) adentro de una
+   burbuja separada. Definir junto con el resto del equipo si `SignalPanel`/
+   `Matches` se reemplazan del todo por el feed del chat, o conviven como
+   vista de "último resultado" — lo que sea más simple de terminar a tiempo.
+4. Foto y voz: seguir llenando `imagenBase64`/`texto` como ahora (eso no
+   cambia), pero al "enviar" pasa todo por el mismo camino del chat en vez de
+   un `fetch` aparte a `/api/orchestrate`.
+
+**Por qué:** hoy CopilotKit se usa "de costado" (dos caminos redundantes). Con
+esto pasa a ser la única superficie de interacción real, more alineado con el
+pitch del proyecto ("agente embebible") y usa CopilotKit de la forma que está
+pensado (headless, UI 100% propia) en vez del widget flotante genérico.
+
+**Qué NO tocar:** `matching.ts`, el script de embeddings, `package.json`, ni
+el contrato de `OrquestacionResultado`/`types.ts`. Este cambio es solo de
+`page.tsx` (y como mucho el `render` de `diagnosticarProblema` si hace falta
+ajustar el layout de `ChatDiagnostico` para que se vea bien inline en vez de
+en una burbuja chica).
+
 ## Siguiente auditoría
 
 Voy a releer el repo después del próximo commit de ChatGPT y actualizar este archivo con una Ronda 2, marcando qué de esta lista quedó hecho, qué falta, y nuevos hallazgos (bugs, desvíos del contrato, etc).

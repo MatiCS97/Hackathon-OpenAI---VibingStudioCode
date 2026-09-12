@@ -1,4 +1,4 @@
-import { readFile, writeFile } from "node:fs/promises";
+import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { GoogleGenerativeAIEmbeddings } from "@langchain/google-genai";
 import perfiles from "../../data/profiles.json";
@@ -8,7 +8,6 @@ import type { Diagnostico, MatchProfesional, Profesional } from "./types";
 const EMBEDDINGS_PATH = path.join(process.cwd(), "data", "profile-embeddings.json");
 const MATCH_THRESHOLD = 0.55;
 const TOP_K = 5;
-const BATCH_SIZE = 100;
 const RADIO_REFERENCIA_KM = 50;
 const GEMINI_MODEL = "gemini-embedding-001";
 const EMBEDDING_DIMENSIONS = 768;
@@ -41,7 +40,7 @@ export async function encontrarMatches(
   matches: MatchProfesional[];
   fallback_web: boolean;
 }> {
-  const perfilEmbeddings = await cargarOGenerarEmbeddings();
+  const perfilEmbeddings = await cargarEmbeddings();
   let queryEmbedding: number[] | undefined;
 
   try {
@@ -92,44 +91,25 @@ export async function encontrarMatches(
   };
 }
 
-async function cargarOGenerarEmbeddings(): Promise<PerfilEmbedding[]> {
+// Generar los embeddings de los 20000 perfiles no entra en el tiempo de un request
+// HTTP (son horas contra los limites de Gemini), asi que la cache es un requisito
+// de arranque, no algo que se resuelva al vuelo.
+async function cargarEmbeddings(): Promise<PerfilEmbedding[]> {
   embeddingsMemo ??= (async () => {
     const cache = await leerCacheEmbeddings();
-    if (cache?.length) return cache;
-
-    const generados: PerfilEmbedding[] = [];
-    for (let index = 0; index < profesionales.length; index += BATCH_SIZE) {
-      const batch = profesionales.slice(index, index + BATCH_SIZE);
-      const embeddings = await obtenerClienteGemini().embedDocuments(batch.map(textoPerfil));
-      if (embeddings.length !== batch.length) {
-        throw new Error("Gemini no devolvio embeddings para todos los perfiles.");
-      }
-
-      embeddings.forEach((embedding, offset) => {
-        if (embedding.length < EMBEDDING_DIMENSIONS) {
-          throw new Error("Gemini devolvio un perfil sin embedding.");
-        }
-
-        generados.push({
-          id: batch[offset].id,
-          embedding: reducirEmbedding(embedding),
-        });
-      });
+    if (!cache?.length) {
+      throw new Error(
+        "Falta la cache de embeddings (data/profile-embeddings.json). Corre `npm run embeddings:generate` antes de levantar el servidor.",
+      );
     }
 
-    try {
-      const cache: CacheEmbeddings = {
-        provider: "gemini",
-        model: GEMINI_MODEL,
-        dimensions: EMBEDDING_DIMENSIONS,
-        embeddings: generados,
-      };
-      await writeFile(EMBEDDINGS_PATH, JSON.stringify(cache), "utf8");
-    } catch (error) {
-      console.warn("No se pudo guardar la cache de embeddings.", error);
+    if (cache.length < profesionales.length) {
+      console.warn(
+        `Cache de embeddings incompleta: ${cache.length} de ${profesionales.length} perfiles. Los ${profesionales.length - cache.length} restantes no van a aparecer como match.`,
+      );
     }
 
-    return generados;
+    return cache;
   })();
 
   return embeddingsMemo;
@@ -258,7 +238,11 @@ function factorUbicacion(profesional: Profesional, cliente: UbicacionCliente) {
     profesional.ubicacion.lon,
   );
 
-  return Math.max(0.7, 1 - (distancia / RADIO_REFERENCIA_KM) * 0.3);
+  // Decaimiento continuo y sin piso: con el piso anterior de 0.7, un profesional a
+  // 60km y uno a 6000km recibian el mismo factor. Ahora 0km -> 1.0, 25km -> 0.67,
+  // 50km -> 0.5, 500km -> 0.09. Es penalizacion, no exclusion: la ubicacion del
+  // cliente es opcional y si no se conoce no se penaliza a nadie.
+  return RADIO_REFERENCIA_KM / (RADIO_REFERENCIA_KM + distancia);
 }
 
 function distanciaEnKm(latitudA: number, longitudA: number, latitudB: number, longitudB: number) {

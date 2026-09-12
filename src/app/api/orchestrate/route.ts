@@ -1,5 +1,5 @@
 import { diagnosticar, estimarConWebSearch } from "@/lib/diagnostico";
-import { leerConfiguracionDelBody } from "@/lib/ia-config";
+import { configuracionDelServidor, leerConfiguracionDelBody } from "@/lib/ia-config";
 import { encontrarMatches, type UbicacionCliente } from "@/lib/matching";
 import type { OrquestacionResultado } from "@/lib/types";
 
@@ -22,7 +22,8 @@ export async function POST(request: Request) {
     // Si el visitante cargo su propia key en el panel de configuracion, viaja en
     // el body de este request y se usa solo para el; nunca se guarda del lado
     // del servidor. Sin eso, se usa la key del equipo (variable de entorno).
-    const configuracionIA = leerConfiguracionDelBody(body.configuracionIA);
+    const configuracionIA =
+      leerConfiguracionDelBody(body.configuracionIA) ?? configuracionDelServidor();
 
     const diagnosticoInicial = await diagnosticar(body, configuracionIA);
     const ubicacionCliente = esUbicacionValida(body.ubicacion)

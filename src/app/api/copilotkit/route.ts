@@ -7,6 +7,7 @@ import {
 import Anthropic from "@anthropic-ai/sdk";
 import OpenAI from "openai";
 import { NextRequest } from "next/server";
+import { configuracionDelServidor } from "@/lib/ia-config";
 
 const runtime = new CopilotRuntime();
 
@@ -25,6 +26,16 @@ function armarServiceAdapter(req: NextRequest) {
 
   if (proveedor === "anthropic" && modelo && apiKey) {
     return new AnthropicAdapter({ anthropic: new Anthropic({ apiKey }), model: modelo });
+  }
+
+  // Sin key del visitante, el deploy usa la suya. Si esta configurado con
+  // IA_PROVEEDOR=openai, todo el sitio corre sobre esa cuenta.
+  const porDefecto = configuracionDelServidor();
+  if (porDefecto) {
+    return new OpenAIAdapter({
+      openai: new OpenAI({ apiKey: porDefecto.apiKey }),
+      model: porDefecto.modelo,
+    });
   }
 
   // Este runtime solo decide cuando llamar a diagnosticarProblema y despues

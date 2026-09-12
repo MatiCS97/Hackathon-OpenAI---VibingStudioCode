@@ -44,6 +44,21 @@ export function guardarConfiguracion(config: ConfiguracionIA | null) {
   window.localStorage.setItem(LLAVE_LOCALSTORAGE, JSON.stringify(config));
 }
 
+// Default del servidor cuando el visitante no trajo su propia key. Sin estas
+// variables se usa ANTHROPIC_API_KEY como siempre; con ellas, el deploy entero
+// pasa a OpenAI, que es lo que permite mover la demo a la cuenta que tenga
+// credito sin tocar codigo.
+export function configuracionDelServidor(): ConfiguracionIA | undefined {
+  const apiKey = process.env.OPENAI_API_KEY;
+  const modelo = process.env.OPENAI_MODELO;
+
+  if (process.env.IA_PROVEEDOR === "openai" && apiKey && modelo) {
+    return { proveedor: "openai", modelo, apiKey };
+  }
+
+  return undefined;
+}
+
 // Server-side: valida lo que llega en el body de un request. Nunca se loguea ni
 // se persiste — se usa una vez, para las llamadas de ese request, y se descarta.
 export function leerConfiguracionDelBody(valor: unknown): ConfiguracionIA | undefined {

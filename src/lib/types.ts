@@ -36,8 +36,14 @@ export interface MatchProfesional {
   profesional: Profesional;
 }
 
+export interface FuenteWeb {
+  titulo: string;
+  url: string;
+}
+
 export interface OrquestacionResultado {
   diagnostico: Diagnostico;
   matches: MatchProfesional[];
   fallback_web: boolean;
+  fuentes_web: FuenteWeb[];
 }

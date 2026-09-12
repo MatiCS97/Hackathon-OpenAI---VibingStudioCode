@@ -35,9 +35,8 @@ yarn-error.log*
 !.env.example
 !.env.local.example
 
-# generated embeddings cache
-/data/profile-embeddings.json
-!/data/profile-embeddings.json
+# La cache de embeddings SI se commitea: regenerarla tarda horas contra los
+# limites de Gemini, y sin ella el server no arranca.
 /data/embedding-generation.log
 /data/embedding-generation-error.log
 

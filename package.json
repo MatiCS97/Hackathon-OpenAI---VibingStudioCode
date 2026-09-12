@@ -7,7 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "embeddings:generate": "node --env-file=.env.local scripts/generate-profile-embeddings.mjs --limit=10000"
+    "embeddings:generate": "node --env-file=.env.local scripts/generate-profile-embeddings.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.125.0",

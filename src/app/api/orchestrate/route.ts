@@ -22,14 +22,15 @@ export async function POST(request: Request) {
       diagnosticoInicial,
       esUbicacionValida(body.ubicacion) ? body.ubicacion : undefined,
     );
-    const diagnostico = resultadoMatching.fallback_web
+    const estimacionWeb = resultadoMatching.fallback_web
       ? await estimarConWebSearch(diagnosticoInicial)
-      : diagnosticoInicial;
+      : null;
 
     const resultado: OrquestacionResultado = {
-      diagnostico,
+      diagnostico: estimacionWeb?.diagnostico ?? diagnosticoInicial,
       matches: resultadoMatching.matches,
       fallback_web: resultadoMatching.fallback_web,
+      fuentes_web: estimacionWeb?.fuentes ?? [],
     };
 
     return Response.json(resultado);

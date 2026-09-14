@@ -1,6 +1,7 @@
 import { estimarConWebSearch } from "@/lib/diagnostico";
 import { diagnosticarConCache } from "@/lib/diagnostico-cache";
 import { configuracionDelServidor, leerConfiguracionDelBody, normalizarModoIA } from "@/lib/ia-config";
+import { limitarPorIp } from "@/lib/limite-uso";
 import { encontrarMatches, type UbicacionCliente } from "@/lib/matching";
 import type { OrquestacionResultado } from "@/lib/types";
 
@@ -19,6 +20,11 @@ export async function POST(request: Request) {
         { error: "Describe el problema o subi una foto." },
         { status: 400 },
       );
+    }
+
+    if (body.configuracionIA == null) {
+      const bloqueo = limitarPorIp(request, "diagnostico");
+      if (bloqueo) return bloqueo;
     }
 
     // Si el visitante cargo su propia key en el panel de configuracion, viaja en

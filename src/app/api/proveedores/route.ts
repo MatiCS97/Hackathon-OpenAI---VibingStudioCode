@@ -1,5 +1,6 @@
 import { buscarProveedoresWeb } from "@/lib/diagnostico";
 import { configuracionDelServidor, leerConfiguracionDelBody, normalizarModoIA } from "@/lib/ia-config";
+import { limitarPorIp } from "@/lib/limite-uso";
 import type { UbicacionCliente } from "@/lib/matching";
 import type { Diagnostico } from "@/lib/types";
 
@@ -18,6 +19,13 @@ export async function POST(request: Request) {
     const modo = normalizarModoIA(body.modoIA);
     if (modo === "economico" || !body.diagnostico?.categoria) {
       return Response.json({ proveedores: [] });
+    }
+
+    // Despues del corte de arriba: esas respuestas no gastan nada y no deben
+    // consumir el cupo. La pagina lee `proveedores` y cae a vacio igual.
+    if (body.configuracionIA == null) {
+      const bloqueo = limitarPorIp(request, "proveedores");
+      if (bloqueo) return bloqueo;
     }
 
     const proveedores = await buscarProveedoresWeb(

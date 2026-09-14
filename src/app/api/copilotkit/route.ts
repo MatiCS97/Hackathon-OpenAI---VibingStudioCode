@@ -15,6 +15,7 @@ import {
   esProveedorIA,
   type ConfiguracionIA,
 } from "@/lib/ia-config";
+import { limitarPorIp } from "@/lib/limite-uso";
 
 const runtime = new CopilotRuntime();
 
@@ -22,8 +23,7 @@ const runtime = new CopilotRuntime();
 // configuracion; viaja como headers (ver copilot-provider.tsx) porque el body de
 // este endpoint es el protocolo interno de CopilotKit, no uno propio. Sin esos
 // headers, se arma el adapter de siempre con la key del equipo.
-function armarServiceAdapter(req: NextRequest) {
-  const delVisitante = configuracionDeHeaders(req);
+function armarServiceAdapter(delVisitante: ConfiguracionIA | undefined) {
   if (delVisitante) return adapterDe(delVisitante);
 
   // Este runtime solo decide cuando llamar a diagnosticarProblema y despues
@@ -69,11 +69,26 @@ function adapterDe(config: ConfiguracionIA) {
 }
 
 export const POST = async (req: NextRequest) => {
+  const delVisitante = configuracionDeHeaders(req);
+
+  if (!delVisitante && (await esEjecucionDeAgente(req))) {
+    const bloqueo = limitarPorIp(req, "chat");
+    if (bloqueo) return bloqueo;
+  }
+
   const { handleRequest } = copilotRuntimeNextJSAppRouterEndpoint({
     runtime,
-    serviceAdapter: armarServiceAdapter(req),
+    serviceAdapter: armarServiceAdapter(delVisitante),
     endpoint: "/api/copilotkit",
   });
 
   return handleRequest(req);
 };
+
+// Solo agent/run llama al modelo. El resto del protocolo (info, connect) llega
+// en cada carga de pagina sin gastar nada y no debe comerse el cupo. Se lee un
+// clon porque el body original lo consume CopilotKit despues.
+async function esEjecucionDeAgente(req: NextRequest) {
+  const envoltura = (await req.clone().json().catch(() => null)) as { method?: unknown } | null;
+  return envoltura?.method === "agent/run";
+}

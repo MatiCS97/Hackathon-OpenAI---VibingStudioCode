@@ -69,11 +69,56 @@ const { POST: orquestar } = await import("../src/app/api/orchestrate/route.ts");
 const { POST: proveedores } = await import("../src/app/api/proveedores/route.ts");
 const { diagnosticar } = await import("../src/lib/diagnostico.ts");
 const { leerConfiguracionDelBody, configuracionDelServidor } = await import("../src/lib/ia-config.ts");
+const { limitarPorIp, LIMITES } = await import("../src/lib/limite-uso.ts");
 after(() => { globalThis.fetch = fetchOriginal; });
 beforeEach(() => { llamadas.length = 0; status = 200; respuestaDiagnostico = diagnostico; rechazarJsonSchema = false; });
 
 const request = (body) => new Request("http://localhost/api/orchestrate", {
   method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
+});
+const desdeIp = (ip, body = {}) => new Request("http://localhost/api/orchestrate", {
+  method: "POST", headers: { "Content-Type": "application/json", "x-real-ip": ip }, body: JSON.stringify(body),
+});
+
+test("el limite por IP raciona la key del equipo sin frenar a quien trae la suya", async () => {
+  const ip = "203.0.113.7";
+  for (let i = 0; i < LIMITES.diagnostico; i++) assert.equal(limitarPorIp(desdeIp(ip), "diagnostico"), null);
+
+  const bloqueada = await orquestar(desdeIp(ip, { texto: "Caneria rota prueba limite" }));
+  assert.equal(bloqueada.status, 429);
+  assert.ok(Number(bloqueada.headers.get("retry-after")) > 0);
+  // La pagina muestra `error` tal cual, asi que tiene que decir que hacer.
+  assert.match((await bloqueada.json()).error, /propia key/);
+  assert.equal(llamadas.length, 0);
+
+  assert.notEqual((await orquestar(desdeIp("203.0.113.8", { texto: "Caneria rota prueba limite" }))).status, 429);
+  const conKeyPropia = await orquestar(desdeIp(ip, { texto: "Caneria rota prueba limite", configuracionIA: config }));
+  assert.equal(conKeyPropia.status, 200);
+});
+
+test("la ventana del limite se renueva pasada la hora", () => {
+  const ip = "203.0.113.9";
+  const ahoraReal = Date.now;
+  try {
+    for (let i = 0; i < LIMITES.proveedores; i++) limitarPorIp(desdeIp(ip), "proveedores");
+    assert.equal(limitarPorIp(desdeIp(ip), "proveedores")?.status, 429);
+    const base = ahoraReal();
+    Date.now = () => base + 60 * 60 * 1000 + 1;
+    assert.equal(limitarPorIp(desdeIp(ip), "proveedores"), null);
+  } finally {
+    Date.now = ahoraReal;
+  }
+});
+
+test("pedidos que no gastan no consumen cupo", async () => {
+  const ip = "203.0.113.10";
+  // Vacio (400) y proveedores en modo economico (corte gratis) no cuentan.
+  for (let i = 0; i < LIMITES.diagnostico + 5; i++) {
+    assert.equal((await orquestar(desdeIp(ip, {}))).status, 400);
+    assert.deepEqual(await (await proveedores(desdeIp(ip, { diagnostico, modoIA: "economico" }))).json(), { proveedores: [] });
+  }
+  assert.equal(limitarPorIp(desdeIp(ip), "diagnostico"), null);
+  assert.equal(limitarPorIp(desdeIp(ip), "proveedores"), null);
 });
 
 test("diagnostico economico: una llamada, modelo/key elegidos y matching sin Gemini", async () => {

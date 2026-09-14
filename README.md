@@ -9,6 +9,143 @@ por defecto; el modo completo agrega conversación y enriquecimiento web automá
 
 Es un prototipo genérico e independiente construido durante el evento.
 
+**Demo:** https://hackathon-open-ai-vibing-studio-cod.vercel.app
+
+## Para qué está hecho
+
+Cuando algo se rompe en casa, la persona no sabe qué oficio necesita, qué tan urgente
+es ni cuánto le puede costar. Escribe "se me rompió algo en el baño" o manda una foto,
+y quien recibe el pedido tiene que adivinar: manda al técnico equivocado, cotiza a
+ciegas o pierde el pedido.
+
+ServicIA se ubica en la entrada de ese flujo. Convierte un problema contado de cualquier
+forma (texto, foto o voz) en un **pedido estructurado** que un sistema puede usar sin
+intervención humana: rubro, especialidad, urgencia, certificaciones necesarias y un rango
+orientativo de costo y horas. Con eso recomienda a quién mandar y explica por qué,
+citando datos del perfil de cada profesional.
+
+Está pensado para organizaciones que **ya tienen profesionales** y necesitan clasificar
+y derivar pedidos:
+
+- **Marketplaces y apps de servicios** que quieren pedidos mejor clasificados y menos
+  visitas perdidas.
+- **Empresas con técnicos propios** (mantenimiento, telecomunicaciones, garantías de
+  electrodomésticos) que reciben reclamos desordenados.
+- **Aseguradoras de hogar** que necesitan un primer triage de siniestros a partir de una
+  foto.
+- **Administradoras de edificios** que reciben reclamos de inquilinos por mensaje.
+
+No es un marketplace: no trae profesionales propios. Los de la demo son sintéticos (ver
+[Perfiles y embeddings](#perfiles-y-embeddings)); para uso real se cargan los de cada
+organización.
+
+## Cómo se puede usar
+
+### 1. Probar la demo
+
+Abrir la [demo](https://hackathon-open-ai-vibing-studio-cod.vercel.app), contar el
+problema escribiendo, con una foto o con el micrófono (Chrome), y tocar
+**Diagnosticar**. No hace falta cuenta.
+
+La demo corre sobre la key del equipo, con un límite por IP para que nadie agote la
+cuota de los demás: **60 diagnósticos, 60 mensajes de chat y 20 búsquedas de proveedores
+por hora**. Al llegar al límite la página avisa cuánto falta.
+
+### 2. Con tu propia key
+
+En **Configurar IA**, elegir proveedor (Anthropic, OpenAI, Google Gemini u OpenRouter),
+modelo, y pegar la key. Queda solo en tu navegador, viaja con cada consulta y no se
+guarda en el servidor. Las consultas con key propia las paga esa cuenta y **no cuentan
+para el límite** de la demo.
+
+### 3. Integrarlo por API
+
+El pipeline completo es un endpoint HTTP. Tu backend manda el problema y recibe el
+diagnóstico y los profesionales recomendados en JSON:
+
+```bash
+curl -X POST https://hackathon-open-ai-vibing-studio-cod.vercel.app/api/orchestrate \
+  -H "Content-Type: application/json" \
+  -d '{
+    "texto": "Se me rompió una cañería en el baño y pierde agua por la pared",
+    "ubicacion": { "lat": -25.29, "lon": -57.58 },
+    "modoIA": "economico"
+  }'
+```
+
+| Campo | Obligatorio | Qué es |
+|---|---|---|
+| `texto` | uno de los dos | El problema contado por el cliente |
+| `imagenBase64` | uno de los dos | Foto como data URL (`data:image/jpeg;base64,...`) |
+| `ubicacion` | no | `{ "lat", "lon" }` del cliente, para priorizar a los más cercanos |
+| `modoIA` | no | `"economico"` (predeterminado) o `"completo"` |
+| `configuracionIA` | no | `{ "proveedor", "modelo", "apiKey" }` para usar tu propia key |
+
+Respuesta (primer match de 5, recortada):
+
+```json
+{
+  "diagnostico": {
+    "categoria": "Plomería",
+    "sub_especialidad": "Reparación de fugas de agua",
+    "urgencia": "alta",
+    "certificaciones_requeridas": ["Plomero matriculado"],
+    "costo_estimado_min": 150000,
+    "costo_estimado_max": 450000,
+    "horas_estimadas": 3,
+    "fuente_estimacion": "base_local"
+  },
+  "matches": [
+    {
+      "profesional_id": "prof_00392",
+      "score": 0.67,
+      "explicacion": "Elegido para Reparación de fugas de agua porque trabaja en Plomería, tiene especialidades cercanas: reparación de fugas de gas, destape de cañerías, cuenta con Gasista matriculado, 23 trabajos completados, 3.4 de rating, atiende en Asunción. Score 0.67.",
+      "profesional": {
+        "nombre": "Liliana Insfrán",
+        "rubro": "Plomería",
+        "ubicacion": { "ciudad": "Asunción", "lat": -25.28705, "lon": -57.58666 },
+        "rating": 3.4,
+        "disponible": true
+      }
+    }
+  ],
+  "fallback_web": false,
+  "fuentes_web": [],
+  "proveedores_web": []
+}
+```
+
+A tener en cuenta al integrarlo:
+
+- Los costos están en guaraníes. En modo económico el rango **es orientativo**: lo estima
+  el modelo sin una tabla de precios detrás, aunque el campo diga `base_local`. Solo
+  viene respaldado cuando `fuente_estimacion` es `"web_search"` y `fuentes_web` trae las
+  fuentes, lo que ocurre en modo completo.
+- Si no hay profesionales del rubro, `POST /api/proveedores` con el `diagnostico` busca
+  negocios reales con teléfono en la web (solo modo completo, y no con Gemini).
+- Los errores llegan como `{ "error": "..." }` con estado 400, 429 o 500. El 429 trae
+  `Retry-After` en segundos.
+- Es para llamar desde un servidor: el endpoint no habilita CORS para navegadores de
+  otros dominios.
+- La demo pública sirve para probar. Para integrarlo en serio, desplegar una instancia
+  propia (punto 4), con sus profesionales y su key.
+
+El contrato completo de cada campo está en [`CLAUDE.md`](./CLAUDE.md).
+
+### 4. Desplegar tu instancia con tus profesionales
+
+1. Hacer fork del repositorio.
+2. Reemplazar `data/profiles.json` por tus profesionales, con los mismos campos: `id`,
+   `nombre`, `rubro`, `especialidades[]`, `certificaciones[]`, `bio`,
+   `ubicacion { ciudad, lat, lon }`, `rating`, `trabajos_completados`, `disponible`.
+   El diagnóstico elige la categoría entre los rubros de este mismo archivo, así que tu
+   vocabulario pasa a ser el suyo.
+3. Regenerar la cache con `npm run embeddings:generate`. **Es obligatorio**, también en
+   modo económico: solo compiten como match los perfiles que tienen embedding.
+4. Desplegar en Vercel con `IA_PROVEEDOR` y la key del proveedor elegido (ver
+   [Cómo correrlo](#cómo-correrlo)).
+5. Ajustar los límites por hora en `src/lib/limite-uso.ts` si tu tráfico lo necesita.
+
 ## Qué tipo de agente es
 
 No es un loop autónomo que decide sus propios pasos: es un **agente de tool use con
@@ -148,8 +285,9 @@ ayuda, para no competir con el resultado.
 ## Stack
 
 - **Next.js 16** (App Router) y **CopilotKit** para la experiencia de agente y Generative UI.
-- **Claude (`claude-sonnet-5`)** para diagnóstico de texto/visión, explicabilidad y
-  búsqueda web de respaldo.
+- **Claude, OpenAI, Gemini u OpenRouter** para diagnóstico de texto/visión y búsqueda
+  web de respaldo, elegible por variable de entorno o por visitante. La demo pública
+  corre sobre Gemini.
 - **Gemini `gemini-embedding-001`** para embeddings y matching semántico local.
 - **Web Speech API** para entrada por voz, sin API key adicional.
 - Geolocalización opcional del navegador para priorizar profesionales cercanos.
